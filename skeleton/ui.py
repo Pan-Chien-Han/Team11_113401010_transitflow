@@ -180,7 +180,7 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
         password=password,
         secret_question=secret_question,
         secret_answer=secret_answer.strip(),
-        date_of_birth=str(year),
+        date_of_birth=f"{year}-01-01",
     )
     
     if not ok:

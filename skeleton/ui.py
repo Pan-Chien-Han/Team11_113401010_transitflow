@@ -296,8 +296,8 @@ with gr.Blocks(title="TransitFlow") as demo:
         login_error_msg   = gr.Markdown("", visible=False)
         with gr.Row():
             login_submit_btn = gr.Button("Login", variant="primary", scale=1)
-            forgot_link_btn  = gr.Button("Forgot password?", size="sm", scale=1)
-            login_cancel_btn = gr.Button("Cancel", size="sm", scale=1)
+            forgot_link_btn  = gr.Button("Forgot password?", scale=1)
+            login_cancel_btn = gr.Button("Cancel", scale=1)
 
     # ── Register panel (hidden by default) ───────────────────────────
     with gr.Column(visible=False) as register_panel:

@@ -103,23 +103,23 @@ def on_chat_model_change(value: str):
 
 def do_login(email: str, password: str):
     """Handle login form submission."""
-    # Check for empty or whitespace-only inputs
+
     if not email.strip() or not password.strip():
         return (
             gr.update(value="Please enter your email and password.", visible=True),
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(),  # Fix: Keep it neutral to prevent Gradio UI state conflicts
+            gr.update(visible=True),
         )
 
-    # Authenticate user credentials against the database
+
     user = login_user(email.strip(), password)
     if user is None:
         return (
             gr.update(value="Incorrect email or password.", visible=True),
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(),  # Fix: Keep it neutral to prevent Gradio UI state conflicts
+            gr.update(visible=True),
         )
 
     display_name = f"{user['first_name']} {user['surname']}"
@@ -141,10 +141,9 @@ def do_logout():
         gr.update(visible=True),
         gr.update(value="", visible=False),
         gr.update(visible=False),
-        gr.update(visible=False),  # auth_panel
-        gr.update(visible=True),   # login_panel reset
-        gr.update(visible=False),  # register_panel
-        gr.update(visible=False),  # forgot_panel
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
     )
 
 
@@ -248,51 +247,19 @@ def forgot_reset_password(email: str, answer: str, new_password: str):
 
 
 # ── Panel visibility toggles ──────────────────────────────────────────────────
-# UI PATCH v3:
-# Keep a single outer auth_panel visible while switching between Login/Register/Forgot views.
-# This avoids Gradio briefly hiding the parent that contains the clicked Forgot Password button.
+
 
 def show_login_panel():
-    return (
-        gr.update(visible=True),    # auth_panel
-        gr.update(visible=True),    # login_panel
-        gr.update(visible=False),   # register_panel
-        gr.update(visible=False),   # forgot_panel
-    )
-
+    return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
 
 def show_register_panel():
-    return (
-        gr.update(visible=True),    # auth_panel
-        gr.update(visible=False),   # login_panel
-        gr.update(visible=True),    # register_panel
-        gr.update(visible=False),   # forgot_panel
-    )
-
+    return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
 
 def show_forgot_panel():
-    return (
-        gr.update(visible=True),    # auth_panel stays open
-        gr.update(visible=False),   # login_panel
-        gr.update(visible=False),   # register_panel
-        gr.update(visible=True),    # forgot_panel
-        gr.update(value="", visible=False),  # login_error_msg
-        gr.update(value=""),                 # forgot_email_in
-        gr.update(value="", visible=False),  # forgot_question_display
-        gr.update(value="", visible=False),  # forgot_answer_in
-        gr.update(value="", visible=False),  # forgot_new_password_in
-        gr.update(visible=False),            # forgot_reset_btn
-        gr.update(value="", visible=False),  # forgot_msg
-    )
-
+    return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
 
 def hide_all_panels():
-    return (
-        gr.update(visible=False),   # auth_panel
-        gr.update(visible=True),    # login_panel reset
-        gr.update(visible=False),   # register_panel
-        gr.update(visible=False),   # forgot_panel
-    )
+    return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
 
 # ── Example queries ────────────────────────────────────────────────────────────
@@ -328,51 +295,44 @@ with gr.Blocks(title="TransitFlow") as demo:
             user_info_display = gr.Markdown("", visible=False)
             logout_btn = gr.Button("Logout", size="sm", variant="stop", visible=False)
 
-    # ── Auth panel (hidden by default) ────────────────────────────────
-    # UI PATCH v3:
-    # login_panel, register_panel, and forgot_panel are now three inner views
-    # inside one stable auth_panel. Switching views no longer hides the parent
-    # component that contains the clicked button.
-    with gr.Column(visible=False) as auth_panel:
+    # ── Login panel (hidden by default) ──────────────────────────────
+    with gr.Column(visible=False) as login_panel:
+        gr.Markdown("### Login")
+        login_email_in    = gr.Textbox(label="Email", placeholder="you@example.com")
+        login_password_in = gr.Textbox(label="Password", type="password")
+        login_error_msg   = gr.Markdown("", visible=False)
+        with gr.Row():
+            login_submit_btn = gr.Button("Login", variant="primary")
+            forgot_link_btn  = gr.Button("Forgot password?", size="sm")
+            login_cancel_btn = gr.Button("Cancel", size="sm")
 
-        # ── Login view ────────────────────────────────────────────────
-        with gr.Column(visible=True) as login_panel:
-            gr.Markdown("### Login")
-            login_email_in    = gr.Textbox(label="Email", placeholder="you@example.com")
-            login_password_in = gr.Textbox(label="Password", type="password")
-            login_error_msg   = gr.Markdown("", visible=False)
-            with gr.Row():
-                login_submit_btn = gr.Button("Login", variant="primary", scale=1)
-                forgot_link_btn  = gr.Button("Forgot password?", scale=1)
-                login_cancel_btn = gr.Button("Cancel", scale=1)
+    # ── Register panel (hidden by default) ───────────────────────────
+    with gr.Column(visible=False) as register_panel:
+        gr.Markdown("### Create an Account")
+        with gr.Row():
+            reg_first_name_in = gr.Textbox(label="First name")
+            reg_surname_in    = gr.Textbox(label="Surname")
+        reg_email_in    = gr.Textbox(label="Email", placeholder="you@example.com")
+        reg_year_in     = gr.Textbox(label="Year of birth", placeholder="e.g. 1990")
+        reg_password_in = gr.Textbox(label="Password", type="password")
+        reg_question_in = gr.Dropdown(choices=SECRET_QUESTIONS, label="Security question")
+        reg_answer_in   = gr.Textbox(label="Secret answer")
+        reg_error_msg   = gr.Markdown("", visible=False)
+        with gr.Row():
+            reg_submit_btn = gr.Button("Register", variant="primary")
+            reg_cancel_btn = gr.Button("Cancel", size="sm")
 
-        # ── Register view ─────────────────────────────────────────────
-        with gr.Column(visible=False) as register_panel:
-            gr.Markdown("### Create an Account")
-            with gr.Row():
-                reg_first_name_in = gr.Textbox(label="First name")
-                reg_surname_in    = gr.Textbox(label="Surname")
-            reg_email_in    = gr.Textbox(label="Email", placeholder="you@example.com")
-            reg_year_in     = gr.Textbox(label="Year of birth", placeholder="e.g. 1990")
-            reg_password_in = gr.Textbox(label="Password", type="password")
-            reg_question_in = gr.Dropdown(choices=SECRET_QUESTIONS, label="Security question")
-            reg_answer_in   = gr.Textbox(label="Secret answer")
-            reg_error_msg   = gr.Markdown("", visible=False)
-            with gr.Row():
-                reg_submit_btn = gr.Button("Register", variant="primary")
-                reg_cancel_btn = gr.Button("Cancel", size="sm")
-
-        # ── Forgot password view ──────────────────────────────────────
-        with gr.Column(visible=False) as forgot_panel:
-            gr.Markdown("### Reset Your Password")
-            forgot_email_in          = gr.Textbox(label="Email address", placeholder="you@example.com")
-            forgot_check_btn         = gr.Button("Find my question", variant="secondary")
-            forgot_question_display  = gr.Markdown("", visible=False)
-            forgot_answer_in         = gr.Textbox(label="Your answer", visible=False)
-            forgot_new_password_in   = gr.Textbox(label="New password", type="password", visible=False)
-            forgot_reset_btn         = gr.Button("Reset password", variant="primary", visible=False)
-            forgot_msg               = gr.Markdown("", visible=False)
-            forgot_back_btn          = gr.Button("Back to login", size="sm")
+    # ── Forgot password panel (hidden by default) ─────────────────────
+    with gr.Column(visible=False) as forgot_panel:
+        gr.Markdown("### Reset Your Password")
+        forgot_email_in          = gr.Textbox(label="Email address", placeholder="you@example.com")
+        forgot_check_btn         = gr.Button("Find my question", variant="secondary")
+        forgot_question_display  = gr.Markdown("", visible=False)
+        forgot_answer_in         = gr.Textbox(label="Your answer", visible=False)
+        forgot_new_password_in   = gr.Textbox(label="New password", type="password", visible=False)
+        forgot_reset_btn         = gr.Button("Reset password", variant="primary", visible=False)
+        forgot_msg               = gr.Markdown("")
+        forgot_back_btn          = gr.Button("Back to login", size="sm")
 
     # ── Main chat area ────────────────────────────────────────────────
     with gr.Row():
@@ -449,41 +409,27 @@ with gr.Blocks(title="TransitFlow") as demo:
     # Panel toggle buttons
     login_btn.click(
         fn=show_login_panel,
-        outputs=[auth_panel, login_panel, register_panel, forgot_panel],
+        outputs=[login_panel, register_panel, forgot_panel],
     )
     register_btn.click(
         fn=show_register_panel,
-        outputs=[auth_panel, login_panel, register_panel, forgot_panel],
+        outputs=[login_panel, register_panel, forgot_panel],
     )
     login_cancel_btn.click(
         fn=hide_all_panels,
-        outputs=[auth_panel, login_panel, register_panel, forgot_panel],
+        outputs=[login_panel, register_panel, forgot_panel],
     )
     reg_cancel_btn.click(
         fn=hide_all_panels,
-        outputs=[auth_panel, login_panel, register_panel, forgot_panel],
+        outputs=[login_panel, register_panel, forgot_panel],
     )
     forgot_link_btn.click(
         fn=show_forgot_panel,
-        inputs=[],
-        outputs=[
-            auth_panel,
-            login_panel,
-            register_panel,
-            forgot_panel,
-            login_error_msg,
-            forgot_email_in,
-            forgot_question_display,
-            forgot_answer_in,
-            forgot_new_password_in,
-            forgot_reset_btn,
-            forgot_msg,
-        ],
+        outputs=[login_panel, register_panel, forgot_panel],
     )
     forgot_back_btn.click(
         fn=show_login_panel,
-        inputs=[],
-        outputs=[auth_panel, login_panel, register_panel, forgot_panel],
+        outputs=[login_panel, register_panel, forgot_panel],
     )
 
     # Login
@@ -497,7 +443,7 @@ with gr.Blocks(title="TransitFlow") as demo:
             register_btn,
             user_info_display,
             logout_btn,
-            auth_panel,
+            login_panel,
         ],
     )
 
@@ -510,7 +456,6 @@ with gr.Blocks(title="TransitFlow") as demo:
             register_btn,
             user_info_display,
             logout_btn,
-            auth_panel,
             login_panel,
             register_panel,
             forgot_panel,
@@ -531,7 +476,7 @@ with gr.Blocks(title="TransitFlow") as demo:
             register_btn,
             user_info_display,
             logout_btn,
-            auth_panel,
+            register_panel,
         ],
     )
 

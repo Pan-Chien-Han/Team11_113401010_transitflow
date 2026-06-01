@@ -439,83 +439,110 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
           AND user_id = %s;
     """
 
+    # 💡 核心修改 1：新增更新 payments 資料表的 SQL 語句
+    sql_update_payment = """
+        UPDATE payments
+        SET status = 'refunded'
+        WHERE booking_id = %s;
+    """
+
+    conn = None
     try:
-        with _connect() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql_get_booking, (booking_id, user_id))
-                booking = cur.fetchone()
+        # 💡 核心修改 2：手動建立一個未開啟 autocommit 的獨立連線，確保事務安全
+        conn = psycopg2.connect(
+            host=cfg.PG_HOST,
+            port=cfg.PG_PORT,
+            dbname=cfg.PG_DB,
+            user=cfg.PG_USER,
+            password=cfg.PG_PASSWORD,
+        )
+        conn.autocommit = False  
 
-                if not booking:
-                    return False, f"Booking {booking_id} was not found for this user."
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql_get_booking, (booking_id, user_id))
+            booking = cur.fetchone()
 
-                if booking["status"] == "cancelled":
-                    return False, f"Booking {booking_id} is already cancelled."
+            if not booking:
+                conn.rollback()
+                return False, f"Booking {booking_id} was not found for this user."
 
-                amount = float(booking["amount_usd"])
+            if booking["status"] == "cancelled":
+                conn.rollback()
+                return False, f"Booking {booking_id} is already cancelled."
 
-                # Combine travel_date + departure_time
-                departure_dt = datetime.combine(
-                    booking["travel_date"],
-                    booking["departure_time"]
-                )
+            amount = float(booking["amount_usd"])
 
-                now = datetime.now()
-                hours_before = (departure_dt - now).total_seconds() / 3600
+            # Combine travel_date + departure_time
+            departure_dt = datetime.combine(
+                booking["travel_date"],
+                booking["departure_time"]
+            )
 
-                service_type = booking["service_type"]
+            now = datetime.now()
+            hours_before = (departure_dt - now).total_seconds() / 3600
 
-                if service_type == "normal":
-                    policy_id = "RF001"
-                    if hours_before >= 48:
-                        refund_percent = 100
-                        admin_fee = 0.00
-                        window = "Early cancellation"
-                    elif hours_before >= 24:
-                        refund_percent = 75
-                        admin_fee = 0.50
-                        window = "Standard cancellation"
-                    elif hours_before >= 2:
-                        refund_percent = 50
-                        admin_fee = 0.50
-                        window = "Late cancellation"
-                    else:
-                        refund_percent = 0
-                        admin_fee = 0.00
-                        window = "No refund"
+            service_type = booking["service_type"]
 
+            if service_type == "normal":
+                policy_id = "RF001"
+                if hours_before >= 48:
+                    refund_percent = 100
+                    admin_fee = 0.00
+                    window = "Early cancellation"
+                elif hours_before >= 24:
+                    refund_percent = 75
+                    admin_fee = 0.50
+                    window = "Standard cancellation"
+                elif hours_before >= 2:
+                    refund_percent = 50
+                    admin_fee = 0.50
+                    window = "Late cancellation"
                 else:
-                    policy_id = "RF002"
-                    if hours_before >= 48:
-                        refund_percent = 100
-                        admin_fee = 1.00
-                        window = "Early cancellation"
-                    elif hours_before >= 24:
-                        refund_percent = 50
-                        admin_fee = 1.00
-                        window = "Late cancellation"
-                    else:
-                        refund_percent = 0
-                        admin_fee = 0.00
-                        window = "No refund"
+                    refund_percent = 0
+                    admin_fee = 0.00
+                    window = "No refund"
+            else:
+                policy_id = "RF002"
+                if hours_before >= 48:
+                    refund_percent = 100
+                    admin_fee = 1.00
+                    window = "Early cancellation"
+                elif hours_before >= 24:
+                    refund_percent = 50
+                    admin_fee = 1.00
+                    window = "Late cancellation"
+                else:
+                    refund_percent = 0
+                    admin_fee = 0.00
+                    window = "No refund"
 
-                refund_amount = max((amount * refund_percent / 100) - admin_fee, 0)
+            refund_amount = max((amount * refund_percent / 100) - admin_fee, 0)
 
-                cur.execute(sql_update_booking, (booking_id, user_id))
-                conn.commit()
+            # 💡 核心修改 3：依序執行訂單與付款狀態更新
+            cur.execute(sql_update_booking, (booking_id, user_id))
+            cur.execute(sql_update_payment, (booking_id,))
+            
+            # 手動 Commit 提交，讓 pgAdmin 的兩張 table 同步更改
+            conn.commit()
 
-                return True, {
-                    "booking_id": booking_id,
-                    "status": "cancelled",
-                    "service_type": service_type,
-                    "policy_id": policy_id,
-                    "refund_window": window,
-                    "refund_percent": refund_percent,
-                    "admin_fee_usd": admin_fee,
-                    "refund_amount_usd": round(refund_amount, 2),
-                }
+            return True, {
+                "booking_id": booking_id,
+                "status": "cancelled",
+                "service_type": service_type,
+                "policy_id": policy_id,
+                "refund_window": window,
+                "refund_percent": refund_percent,
+                "admin_fee_usd": admin_fee,
+                "refund_amount_usd": round(refund_amount, 2),
+            }
 
     except Exception as e:
+        if conn:
+            conn.rollback()
         return False, str(e)
+    finally:
+        if conn:
+            conn.close()
 
 
 # ── AUTHENTICATION QUERIES ────────────────────────────────────────────────────

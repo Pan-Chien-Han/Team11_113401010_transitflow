@@ -174,9 +174,15 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
         )
 
     ok, err = register_user(
-        email.strip(), first_name.strip(), surname.strip(),
-        year, password, secret_question, secret_answer.strip(),
+        first_name=first_name.strip(),
+        surname=surname.strip(),
+        email=email.strip(),
+        password=password,
+        secret_question=secret_question,
+        secret_answer=secret_answer.strip(),
+        date_of_birth=str(year),
     )
+    
     if not ok:
         return (
             gr.update(value=err, visible=True),

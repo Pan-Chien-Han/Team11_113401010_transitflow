@@ -134,7 +134,7 @@
       {
         "window_id": "RF004_W2",
         "label": "No refund",
-        "condition": "Day pass has been activated (first tap-in recorded)",
+        "condition": "Day pass has been activated or used for its first journey",
         "status_condition": "Booking status is 'completed' or travelled_at is not null",
         "refund_percent": 0,
         "admin_fee_usd": 0.00
@@ -147,36 +147,36 @@
     "label": "Delay Compensation – All Networks",
     "applies_to": {
       "network_type": "all",
-      "ticket_types": ["single", "return", "day_pass"]
+      "ticket_types": ["single", "return", "day_pass", "monthly_season_pass"]
     },
     "compensation_rules": [
       {
         "rule_id": "RF005_R1",
-        "condition": "Train delayed 30–59 minutes due to operator fault",
+        "condition": "Train or metro service delayed 30–59 minutes due to operator fault",
         "compensation": "50% refund of the fare for the delayed leg",
         "how_to_claim": "Submit claim via app or customer service within 28 days of travel date"
       },
       {
         "rule_id": "RF005_R2",
-        "condition": "Train delayed 60–119 minutes due to operator fault",
+        "condition": "Train or metro service delayed 60–119 minutes due to operator fault",
         "compensation": "100% refund of the fare for the delayed leg",
         "how_to_claim": "Submit claim via app or customer service within 28 days of travel date"
       },
       {
         "rule_id": "RF005_R3",
-        "condition": "Train delayed 120 minutes or more due to operator fault",
+        "condition": "Train or metro service delayed 120 minutes or more due to operator fault",
         "compensation": "100% refund of the fare for the delayed leg, plus reimbursement of alternative transport costs up to $10.00",
         "how_to_claim": "Submit claim with receipts via customer service within 28 days of travel date"
       }
     ],
-    "exclusions": "Delays caused by third-party events (extreme weather, security incidents, government directives, or passenger-caused incidents) are not eligible for compensation."
+    "exclusions": "Delays caused by third-party events such as extreme weather, security incidents, government directives, or passenger-caused incidents are not eligible for delay compensation unless the operator officially cancels the service."
   },
   {
     "policy_id": "RF006",
     "label": "Force Majeure and Severe Weather Disruption",
     "applies_to": {
       "network_type": "all",
-      "ticket_types": ["single", "return", "day_pass"]
+      "ticket_types": ["single", "return", "day_pass", "monthly_season_pass"]
     },
     "cancellation_windows": [
       {
@@ -194,7 +194,7 @@
     "label": "Metro Overcharge and Gate Tap Errors",
     "applies_to": {
       "network_type": "metro",
-      "ticket_types": ["single", "day_pass"]
+      "ticket_types": ["single", "day_pass", "monthly_season_pass"]
     },
     "compensation_rules": [
       {
@@ -204,5 +204,32 @@
         "how_to_claim": "Report to the station counter immediately or submit a ticket via the app with the digital card ID within 14 days"
       }
     ]
+  },
+  {
+    "policy_id": "RF008",
+    "label": "Metro – Monthly Season Pass",
+    "applies_to": {
+      "network_type": "metro",
+      "ticket_types": ["monthly_season_pass"]
+    },
+    "cancellation_windows": [
+      {
+        "window_id": "RF008_W1",
+        "label": "Full refund before activation",
+        "condition": "Cancellation requested before the monthly season pass has been activated or used for its first journey",
+        "status_condition": "Booking status is 'confirmed' and travelled_at is null",
+        "refund_percent": 100,
+        "admin_fee_usd": 0.00
+      },
+      {
+        "window_id": "RF008_W2",
+        "label": "No refund after activation",
+        "condition": "Monthly season pass has been activated or used for its first journey",
+        "status_condition": "Booking status is 'completed' or travelled_at is not null",
+        "refund_percent": 0,
+        "admin_fee_usd": 0.00
+      }
+    ],
+    "notes": "Metro monthly season passes are non-transferable and non-refundable once activated or used for the first journey."
   }
 ]

@@ -228,8 +228,14 @@ TOOLS = [
         "name": "search_policy",
         "description": (
             "Search company policy documents. Use for any question about: "
-            "refunds, delay compensation, luggage, bicycles, pets, food and drink, "
-            "conduct, booking rules, ticket types, fare evasion, or child fares."
+            "refunds, cancellations, delay compensation, severe weather, strikes, service cancellations, "
+            "luggage, bicycles, pets, food and drink, conduct, prohibited items, smoking, vaping, noise, "
+            "booking rules, advance booking, ticket types, ticket validity, fare evasion, child fares, "
+            "senior fares, disability concessions, group fares, payment, booking confirmation, "
+            "seat selection, ticket changes, lost property, lost items, lost wallets, lost tickets, "
+            "priority seating, accessibility, wheelchair access, assisted boarding, quiet zones, "
+            "infant facilities, baby changing, breastfeeding, customer service, complaints, "
+            "dispute resolution, overcharges, gate tap errors, or penalty fares."
         ),
         "parameters": {
             "query": {"type": "string", "description": "Natural language question about policy"},
@@ -614,7 +620,10 @@ JSON:"""
                 "My bookings/tickets/travel history → get_user_bookings (no params). "
                 "Book a ticket / make a booking → check_national_rail_availability first, then make_booking. "
                 "Cancel a booking → cancel_booking. "
-                "Policy/rules/conduct/compensation/luggage/bicycle questions → search_policy. "
+                "Policy/rules/refund/cancellation/compensation/luggage/bicycle/pet/food/conduct questions → search_policy. "
+                "Lost property/lost wallet/lost item/lost ticket/priority seating/accessibility/quiet zone/smoking/noise/"
+                "baby facilities/ticket changes/seat selection/child fares/senior fares/group fares/payment/overcharge/"
+                "weather/strike/service cancellation questions → search_policy. "
                 "Route/directions/fastest/quickest/how-to-get/path questions → find_route ONLY (never get_metro_fare). "
                 "Metro fare/price/cost/how-much-does-it-cost questions → get_metro_fare. "
                 "Rail fare/cost/price questions → check_national_rail_availability then get_national_rail_fare. "
@@ -657,9 +666,41 @@ JSON:"""
 
     # 0. Policy / refund / compensation questions — override wrong tool selections
     _policy_triggers = {
+    # Refund / delay / cancellation
         "refund", "compensation", "delay compensation", "delayed",
         "delay", "entitled", "claim", "policy", "cancellation",
-        "cancel refund", "luggage", "bicycle", "pet", "conduct"
+        "cancel refund", "severe weather", "weather", "strike",
+        "service cancelled", "service cancellation", "cancelled service",
+
+        # Luggage / bicycle / pets / onboard rules
+        "luggage", "baggage", "bag", "suitcase",
+        "bicycle", "bike", "foldable bike", "e-scooter", "scooter",
+        "pet", "dog", "cat", "animal",
+        "food", "drink", "alcohol",
+        "conduct", "prohibited", "weapon", "flammable",
+        "smoking", "vaping", "noise",
+
+        # Lost property / lost tickets
+        "lost", "lost property", "lost item", "lost wallet",
+        "wallet", "found item", "lost ticket", "ticket lost",
+
+        # Accessibility / priority / infant facilities
+        "priority seat", "priority seating", "elderly", "pregnant",
+        "wheelchair", "accessibility", "assistance", "assisted boarding",
+        "quiet zone", "baby", "infant", "baby changing", "breastfeeding",
+
+        # Ticket / fare rules
+        "ticket type", "ticket validity", "child fare", "children",
+        "senior fare", "disabled", "disability", "concession",
+        "group fare", "payment", "booking confirmation",
+        "advance booking", "seat selection", "change ticket",
+        "ticket change", "change my ticket", "monthly pass",
+        "season pass", "day pass",
+
+        # Errors / disputes
+        "overcharge", "tap error", "gate error", "fare evasion",
+        "penalty fare", "complaint", "customer service",
+        "dispute", "dispute resolution"
     }
 
     if any(kw in _lower for kw in _policy_triggers) and not _tool_selected("search_policy", "query"):
@@ -773,8 +814,19 @@ JSON:"""
     # Step 3: Normalise raw tool results to plain English using the LLM, then
     # compose the final answer.  The normalisation call replaces hand-crafted
     # per-tool formatters: any tool a student adds works automatically.
-    _DB_KEYWORDS = {"booking", "ticket", "schedule", "fare", "route", "seat",
-                    "train", "metro", "journey", "trip", "history", "reservation"}
+    _DB_KEYWORDS = {
+        "booking", "ticket", "schedule", "fare", "route", "seat",
+        "train", "metro", "journey", "trip", "history", "reservation",
+
+        "policy", "refund", "compensation", "delay", "cancellation",
+        "luggage", "bicycle", "bike", "pet", "conduct",
+        "lost", "lost property", "wallet", "priority seat",
+        "accessibility", "wheelchair", "quiet zone",
+        "smoking", "vaping", "noise", "child fare",
+        "senior fare", "group fare", "monthly pass",
+        "day pass", "ticket change", "seat selection",
+        "overcharge", "tap error", "gate error"}
+    
     if tool_results:
         data_block = "\n\n".join(
             f"[{tr['tool']}]\n{_normalise_result(tr['tool'], tr['result'])}"

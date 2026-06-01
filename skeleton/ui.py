@@ -103,21 +103,23 @@ def on_chat_model_change(value: str):
 
 def do_login(email: str, password: str):
     """Handle login form submission."""
+    # Check for empty or whitespace-only inputs
     if not email.strip() or not password.strip():
         return (
             gr.update(value="Please enter your email and password.", visible=True),
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(visible=True),
+            gr.update(),  # Fix: Keep it neutral to prevent Gradio UI state conflicts
         )
 
+    # Authenticate user credentials against the database
     user = login_user(email.strip(), password)
     if user is None:
         return (
             gr.update(value="Incorrect email or password.", visible=True),
             None,
             gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(visible=True),
+            gr.update(),  # Fix: Keep it neutral to prevent Gradio UI state conflicts
         )
 
     display_name = f"{user['first_name']} {user['surname']}"

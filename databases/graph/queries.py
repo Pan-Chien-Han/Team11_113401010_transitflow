@@ -12,7 +12,6 @@ from neo4j import GraphDatabase
 
 from skeleton.config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 
-# ── 老師給的原始碼（保持原封不動，最安全） ───────────────────────────────────────
 
 def _driver():
     """Return a Neo4j driver. Caller is responsible for closing."""
@@ -29,8 +28,8 @@ def example_count_nodes() -> int:
             return result.single()["total"]
 
 
-# ── 業界生產環境優化：全域單例驅動程式 (Singleton Driver) ─────────────────────────
-# 獨立建立一個全域共享的連線池，完美符合講義精神！
+# ── PRODUCTION ENVIRONMENT OPTIMIZATION: GLOBAL SINGLETON DRIVER ──────────────
+# Initialize a globally shared connection pool
 _PROD_DRIVER = GraphDatabase.driver(
     NEO4J_URI, 
     auth=(NEO4J_USER, NEO4J_PASSWORD),
@@ -46,13 +45,14 @@ def query_shortest_route(
     network: str = "auto",
 ) -> dict:
     """
-    找出兩個車站之間最快速的路徑（將總行車時間降到最低）。
+    Find the fastest route between two stations (minimizing total travel time).
     """
     orig_up = origin_id.upper()
     dest_up = destination_id.upper()
 
-    # 🌟 修正：為了讓 APOC Dijkstra 演算法有更強健的尋路容錯率，
-    # 如果 network 是 "auto"、或者起終點包含不同系統，我們彈性調整標籤，否則精準對齊
+    # To make the APOC Dijkstra algorithm more robust and fault-tolerant,
+    # if network is set to "auto" or the origin/destination belong to different systems, 
+    # we dynamically adjust the node labels; otherwise, we enforce precise alignment.
     if network == "auto":
         start_label = "MetroStation" if orig_up.startswith("MS") else "NationalRailStation"
         end_label = "MetroStation" if dest_up.startswith("MS") else "NationalRailStation"
@@ -60,8 +60,8 @@ def query_shortest_route(
         start_label = "MetroStation" if network == "metro" else "NationalRailStation"
         end_label = "MetroStation" if network == "metro" else "NationalRailStation"
 
-    # 🌟 終極修正：將 'link_to' 改為大寫的 'LINK_TO'，完全對齊 seed_neo4j.py 的定義！
-    # 為了支援捷運與鐵路間的轉乘，關係型態允許走 'LINK_TO' 或 'INTERCHANGE_WITH'
+    # Capitalize 'link_to' to 'LINK_TO' to fully align with the definitions in seed_neo4j.py!
+    # To support inter-network transfers between Metro and National Rail, the relationship types allow either 'LINK_TO' or 'INTERCHANGE_WITH'.
     cypher = f"""
     MATCH (start:{start_label} {{station_id: $origin_id}})
     MATCH (end:{end_label} {{station_id: $destination_id}})
@@ -97,7 +97,7 @@ def query_shortest_route(
 
         legs_list = []
         for rel in path_obj.relationships:
-            # 💡 防禦型安全機制：INTERCHANGE_WITH 的轉乘線路名稱可以給個漂亮的預設值
+            # Defensive Safeguard: Assign a clean default name for INTERCHANGE_WITH walking transfers
             line_name = rel.get("line") if rel.get("line") else "Walking Interchange"
             time_cost = rel.get("travel_time_min") if rel.get("travel_time_min") else rel.get("transfer_time_min", 5)
             
@@ -125,7 +125,7 @@ def query_cheapest_route(
     fare_class: str = "standard",
 ) -> dict:
     """
-    找出兩個車站之間最划算、票價總和最低的路徑。
+    Find the most cost-effective route between two stations (minimizing total fare).
     """
     import math
 
@@ -144,7 +144,7 @@ def query_cheapest_route(
     else:
         fare_property = "first_fare_usd" if fare_class == "first" else "standard_fare_usd"
 
-    # 💡 關鍵修正：將 $fare_property 改為 f-string 的 '{fare_property}'，APOC 演算法才能正確讀取！
+    # Convert $fare_property to an f-string '{fare_property}' so the APOC algorithm can parse it correctly!
     cypher = f"""
     MATCH (start:{start_label} {{station_id: $origin_id}})
     MATCH (end:{end_label} {{station_id: $destination_id}})
@@ -172,7 +172,7 @@ def query_cheapest_route(
 
         path_obj = record["path"]
         
-        # 💡 安全防禦：如果 weight 拿到 None，先轉成 0.0 避免 math.isnan 噴錯
+        # Defensive Safeguard: Convert raw_weight to 0.0 if it is None to prevent math.isnan from raising an exception
         raw_weight = record["weight"]
         total_fare = float(raw_weight) if raw_weight is not None else 0.0
 
@@ -194,22 +194,22 @@ def query_cheapest_route(
                 "fare": float(val)
             })
 
-        # 計算這次路線總共走過了幾段（站數）
+        # Calculate the total number of segments (stops) traversed along this route
         stops_count = len(legs_list)
         total_legs_fare = sum(leg["fare"] for leg in legs_list)
         
-        # 💡 官方公式終極保底機制
+        
         if math.isnan(total_fare) or total_fare == 0.0 or total_legs_fare == 0.0:
             if start_label == "MetroStation":
-                # 捷運官方單程票公式：基本費 0.8 + 站數 × 每站 0.3
+                # Official Metro Single-Journey Fare Formula: Base fare 0.8 + (number of stops * 0.3 per stop)
                 base_fare = 0.80
                 per_stop_rate = 0.30
                 total_fare = base_fare + (stops_count * per_stop_rate)
             else:
-                # 鐵路如果也沒灌成功，就維持按段數估計的防禦機制
+                # National Rail defensive fallback mechanism if data seeding fails
                 total_fare = stops_count * 5.0
                 
-            # 均分每一段的車資，讓網頁 Debug 面板的 legs 看起來很漂亮、很專業
+            # Distribute the fare equally across all legs to ensure the web UI debug panel looks clean and professional
             fair_share = total_fare / max(1, stops_count)
             for leg in legs_list:
                 leg["fare"] = round(fair_share, 2)
@@ -236,7 +236,7 @@ def query_alternative_routes(
     max_routes: int = 3,
 ) -> list[list[dict]]:
     """
-    找出兩個車站之間，避開特定故障車站（avoid_station_id）的替代路線。
+    Find alternative routes between two stations, explicitly bypassing a malfunctioning or blocked station (avoid_station_id).
     """
     if network == "auto":
         start_label = "MetroStation" if origin_id.startswith("MS") else "NationalRailStation"
@@ -285,7 +285,7 @@ def query_alternative_routes(
 
 def query_interchange_path(origin_id: str, destination_id: str) -> dict:
     """
-    找出跨越捷運與國家鐵路網絡邊界的跨系統雙軌轉乘最佳路徑。
+    Find the optimal dual-system path that crosses the boundaries between Metro and National Rail networks.
     """
     cypher = """
     MATCH path = (start)-[:LINK_TO|INTERCHANGE_WITH*..15]->(end)
@@ -326,15 +326,15 @@ def query_interchange_path(origin_id: str, destination_id: str) -> dict:
                 })
 
         # ==========================================================
-        # 🌟 針對 Llama 3.2:1b 的核心優化：建立扁平化提示字串
+        # CORE OPTIMIZATION FOR Llama 3.2:1b: FLAT PROMPT STRINGS
         # ==========================================================
-        # 1. 串接 100% 完整的站點導引，防止小模型漏掉任何一站
+        # 1. Concatenate a 100% complete station itinerary to prevent small LLMs from skipping stops.
         route_segments = []
         for i, st in enumerate(stations_list):
             route_segments.append(f"{i+1}. {st['name']} ({st['station_id']})")
         full_route_string = " -> ".join(route_segments)
 
-        # 2. 建立直白的轉乘文字提示
+        # 2. Build unambiguous, explicit transfer string hints
         interchange_hints = []
         for ic in interchanges:
             interchange_hints.append(
@@ -342,14 +342,14 @@ def query_interchange_path(origin_id: str, destination_id: str) -> dict:
             )
         interchange_string = " | ".join(interchange_hints) if interchanges else "No transfer needed."
 
-        # 🌟 包裝成「防呆結構」回傳給 agent.py
+        # Pack into a "foolproof" schema to return to agent.py
         return {
             "found": True,
             "total_time_min": int(total_time),
-            "complete_itinerary_path_do_not_skip": full_route_string, # 強制塞入完整路徑字串
-            "transfer_instructions": interchange_string,              # 強制塞入轉乘說明
-            "stations": stations_list,             # 原本的巢狀結構依然保留，相容系統
-            "interchange_points": interchanges     # 原本的巢狀結構依然保留，相容系統
+            "complete_itinerary_path_do_not_skip": full_route_string, # Forcefully inject complete route string
+            "transfer_instructions": interchange_string,              # Forcefully inject explicit transfer rules
+            "stations": stations_list,             # Retain original nested structure for system compatibility
+            "interchange_points": interchanges     # Retain original nested structure for system compatibility
         }
 
 
@@ -357,7 +357,7 @@ def query_interchange_path(origin_id: str, destination_id: str) -> dict:
 
 def query_delay_ripple(delayed_station_id: str, hops: int = 2) -> list[dict]:
     """
-    尋找因突發延誤而受到波及的 N 站以內所有鄰近車站。
+    Identify all neighboring stations within N hops that are affected by a sudden delay ripple effect.
     """
     cypher = """
     MATCH path = (start)-[:LINK_TO*..15]-(affected)
@@ -388,7 +388,7 @@ def query_delay_ripple(delayed_station_id: str, hops: int = 2) -> list[dict]:
 
 def query_station_connections(station_id: str) -> list[dict]:
     """
-    列出一個指定車站所有直接相連的下一站與其線路。
+    List all directly connected downstream stations and their corresponding lines for a given station.
     """
     cypher = """
     MATCH (start {station_id: $station_id})-[r:LINK_TO]->(next)

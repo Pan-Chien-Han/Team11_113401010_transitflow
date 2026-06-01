@@ -493,7 +493,7 @@ with gr.Blocks(title="TransitFlow") as demo:
         ],
     )
 
-    # Forgot password — step 2: reset
+    # Forgot password — step 2: reset.
     forgot_reset_btn.click(
         fn=forgot_reset_password,
         inputs=[forgot_email_in, forgot_answer_in, forgot_new_password_in],

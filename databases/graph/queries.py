@@ -325,11 +325,31 @@ def query_interchange_path(origin_id: str, destination_id: str) -> dict:
                     "transfer_time_min": rel["transfer_time_min"]
                 })
 
+        # ==========================================================
+        # 🌟 針對 Llama 3.2:1b 的核心優化：建立扁平化提示字串
+        # ==========================================================
+        # 1. 串接 100% 完整的站點導引，防止小模型漏掉任何一站
+        route_segments = []
+        for i, st in enumerate(stations_list):
+            route_segments.append(f"{i+1}. {st['name']} ({st['station_id']})")
+        full_route_string = " -> ".join(route_segments)
+
+        # 2. 建立直白的轉乘文字提示
+        interchange_hints = []
+        for ic in interchanges:
+            interchange_hints.append(
+                f"Transfer at {ic['from_station_id']} to {ic['to_station_id']} (takes {ic['transfer_time_min']} minutes)."
+            )
+        interchange_string = " | ".join(interchange_hints) if interchanges else "No transfer needed."
+
+        # 🌟 包裝成「防呆結構」回傳給 agent.py
         return {
             "found": True,
-            "stations": stations_list,
-            "interchange_points": interchanges,
-            "total_time_min": int(total_time)
+            "total_time_min": int(total_time),
+            "complete_itinerary_path_do_not_skip": full_route_string, # 強制塞入完整路徑字串
+            "transfer_instructions": interchange_string,              # 強制塞入轉乘說明
+            "stations": stations_list,             # 原本的巢狀結構依然保留，相容系統
+            "interchange_points": interchanges     # 原本的巢狀結構依然保留，相容系統
         }
 
 

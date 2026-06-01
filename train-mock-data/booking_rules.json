@@ -36,11 +36,27 @@
       },
       "age_5_to_15": {
         "discount_percent": 50,
-        "description": "Children aged 5–15 (inclusive) pay 50% of the applicable adult fare (calculated using the same stops-based formula).",
+        "description": "Children aged 5–15 inclusive pay 50% of the applicable adult standard class fare, calculated using the same stops-based formula.",
+        "applicable_class": "standard",
+        "not_applicable": "Child fares do not apply to first class national rail tickets.",
         "proof_of_age": "Proof of age may be requested on board. A valid ID, school card, or birth certificate is accepted."
       },
       "age_16_and_over": {
         "description": "Passengers aged 16 and over pay the full adult fare."
+      }
+    },
+    "senior_and_disability_concession": {
+      "age_65_and_over": {
+        "discount_percent": 50,
+        "description": "Passengers aged 65 and over qualify for a 50% concession discount on national rail fares.",
+        "fare_classes": ["standard", "first"],
+        "proof_required": "Valid government-issued ID must be presented upon request."
+      },
+      "registered_disability": {
+        "discount_percent": 50,
+        "description": "Registered passengers with disabilities and one necessary companion qualify for a 50% concession discount.",
+        "fare_classes": ["standard", "first"],
+        "proof_required": "Valid disability card or supporting document must be presented upon request."
       }
     },
     "group_fares": {
@@ -48,7 +64,7 @@
       "discount_percent": 10,
       "applicable_class": "standard",
       "conditions": "Group discount applies to standard class single and return tickets only. All group members must travel on the same service. Discount is applied at the time of booking when 10 or more tickets are purchased in a single transaction.",
-      "not_applicable": "Group discount does not apply to first class tickets, express services, or day passes."
+      "not_applicable": "Group discount does not apply to first class tickets, express services, metro services, or day passes."
     },
     "payment": {
       "accepted_methods": ["credit_card", "debit_card", "ewallet"],
@@ -57,7 +73,7 @@
     },
     "booking_confirmation": {
       "method": "Email and in-app notification sent immediately after booking.",
-      "ticket_format": "Digital ticket (QR code) displayed in the app or printable PDF. No physical ticket is required.",
+      "ticket_format": "Digital ticket with QR code displayed in the app or printable PDF. No physical ticket is required.",
       "check_in": "Present QR code to platform staff or scanner at the gate before boarding."
     }
   },
@@ -69,7 +85,8 @@
     },
     "season_pass_rules": {
       "advance_purchase_max_days": 7,
-      "activation": "Must be activated within 7 days of purchase and is valid for 30 consecutive days."
+      "activation": "Monthly season passes must be activated within 7 days of purchase and are valid for 30 consecutive days from first activation.",
+      "refund_rule": "RF008"
     },
     "seat_selection": {
       "available": false,
@@ -77,7 +94,7 @@
     },
     "ticket_changes": {
       "allowed": false,
-      "description": "Metro tickets cannot be changed. A refund must be requested and a new ticket purchased instead (subject to refund policy RF003 or RF004)."
+      "description": "Metro tickets cannot be changed. A refund must be requested and a new ticket purchased instead, subject to refund policy RF003, RF004, or RF008 depending on ticket type."
     },
     "child_fares": {
       "under_5": {
@@ -86,7 +103,7 @@
       },
       "age_5_to_15": {
         "discount_percent": 50,
-        "description": "Children aged 5–15 (inclusive) pay 50% of the calculated stops-based fare, rounded to the nearest $0.10. Day pass is available at 50% ($2.50) for this age group.",
+        "description": "Children aged 5–15 inclusive pay 50% of the calculated stops-based fare, rounded to the nearest $0.10. A metro day pass is available at 50% ($2.50) for this age group.",
         "proof_of_age": "Proof of age may be requested on board."
       },
       "age_16_and_over": {
@@ -98,6 +115,11 @@
         "discount_percent": 50,
         "description": "Passengers aged 65 and over qualify for a 50% concession discount. Valid government-issued ID must be presented upon request."
       }
+    },
+    "disability_concession": {
+      "discount_percent": 50,
+      "description": "Registered passengers with disabilities and one necessary companion qualify for a 50% concession discount.",
+      "proof_required": "Valid disability card or supporting document must be presented upon request."
     },
     "group_fares": {
       "available": false,

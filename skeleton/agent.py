@@ -621,15 +621,15 @@ JSON:"""
                 "Book a ticket / make a booking → check_national_rail_availability first, then make_booking. "
                 "Cancel a booking → cancel_booking. "
                 "Policy/rules/refund/cancellation/compensation/luggage/bicycle/pet/food/conduct questions → search_policy. "
-"Lost property/lost wallet/lost item/lost ticket/priority seating/accessibility/quiet zone/smoking/noise/"
-"baby facilities/ticket changes/seat selection/child fares/senior fares/group fares/payment/overcharge/"
-"weather/strike/service cancellation questions → search_policy. "
-"Age-based fare questions such as child fare, children, minors, senior fare, disabled fare, concession fare → search_policy first."
-"Do NOT use get_national_rail_fare or get_metro_fare for age-only fare questions unless origin and destination stations are provided. "
-"Route/directions/fastest/quickest/how-to-get/path questions → find_route ONLY (never get_metro_fare). "
-"Metro fare/price/cost/how-much-does-it-cost questions with origin and destination stations → get_metro_fare. "
-"Rail fare/cost/price questions with origin and destination stations → check_national_rail_availability then get_national_rail_fare. "
-            ),
+                "Lost property/lost wallet/lost item/lost ticket/priority seating/accessibility/quiet zone/smoking/noise/"
+                "baby facilities/ticket changes/seat selection/child fares/senior fares/group fares/payment/overcharge/"
+                "weather/strike/service cancellation questions → search_policy. "
+                "Age-based fare questions such as child fare, children, minors, senior fare, disabled fare, concession fare → search_policy first."
+                "Do NOT use get_national_rail_fare or get_metro_fare for age-only fare questions unless origin and destination stations are provided. "
+                "Route/directions/fastest/quickest/how-to-get/path questions → find_route ONLY (never get_metro_fare). "
+                "Metro fare/price/cost/how-much-does-it-cost questions with origin and destination stations → get_metro_fare. "
+                "Rail fare/cost/price questions with origin and destination stations → check_national_rail_availability then get_national_rail_fare. "
+                            ),
         )
         if debug:
             debug_info.append(f"**Tool selection (native):** {tool_calls}")

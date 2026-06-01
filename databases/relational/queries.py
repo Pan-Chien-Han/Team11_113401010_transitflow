@@ -92,15 +92,14 @@ def query_national_rail_availability(
     # 1. 查詢同時停靠起點與終點，且起點站順序在終點站之前的班次
     sql_schedules = """
         SELECT 
-            schedule_id, line, service_type, direction, 
-            origin_station_id, destination_station_id,
-            stops_in_order, first_train_time, last_train_time, 
-            frequency_min, fare_classes
-        FROM national_rail_schedules
-        WHERE %s = ANY(stops_in_order)
-          AND %s = ANY(stops_in_order)
-          AND array_position(stops_in_order, %s) < array_position(stops_in_order, %s);
-    """
+        schedule_id, line, service_type, direction, 
+        origin_station_id, destination_station_id,
+        stops_in_order, first_train_time, last_train_time, 
+        frequency_min, fare_classes
+    FROM national_rail_schedules
+    WHERE origin_station_id = %s
+      AND destination_station_id = %s;
+"""
     
     # 2. 用來統計該班次在特定日期已經有多少張確認的訂票
     sql_bookings_count = """
@@ -115,7 +114,7 @@ def query_national_rail_availability(
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 # 撈出符合路線與站點順序的火車班次
-                cur.execute(sql_schedules, (origin_id, destination_id, origin_id, destination_id))
+                cur.execute(sql_schedules, (origin_id, destination_id))
                 schedules = cur.fetchall()
                 
                 results = []

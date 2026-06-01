@@ -712,10 +712,18 @@ JSON:"""
 
     if "cancel" in _lower and _booking_id:
         booking_id = _booking_id.group(0).upper().replace("-", "")
+        
+        # 💡 關鍵修正：從目前登入的系統狀態中，撈出使用者的 user_id
+        target_uid = "unknown"
+        if current_user_email:
+            profile = query_user_profile(current_user_email)
+            if profile:
+                target_uid = profile["user_id"]
 
+        # 💡 同步修改：在參數字典中，把 booking_id 和 user_id 一起餵給 LLM 觸發
         _fallback(
             "cancel_booking",
-            {"booking_id": booking_id},
+            {"booking_id": booking_id, "user_id": target_uid},
             "booking cancellation"
         )
     # 0.5 Booking request — if not logged in, do not call tools

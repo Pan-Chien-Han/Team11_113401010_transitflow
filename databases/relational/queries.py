@@ -418,20 +418,104 @@ def execute_booking(
 def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | str]:
     """
     Cancel a national rail booking owned by the given user.
-
-    Calculates the refund amount according to the booking's service type:
-      - Normal service: RF001 windows (100% / 75% / 50% / 0%)
-      - Express service: RF002 windows (100% / 50% / 0%)
-
-    Args:
-        booking_id: e.g. "BK001"
-        user_id:    must match the booking's user_id
-
-    Returns:
-        (True, result_dict)  with refund_amount_usd and policy note
-        (False, error_msg)
+    Calculates refund based on service type and hours before departure.
     """
-    raise NotImplementedError("TODO: implement after designing your schema")
+
+    sql_get_booking = """
+        SELECT 
+            b.booking_id, b.user_id, b.schedule_id, b.travel_date,
+            b.departure_time, b.amount_usd, b.status,
+            s.service_type
+        FROM national_rail_bookings b
+        JOIN national_rail_schedules s ON b.schedule_id = s.schedule_id
+        WHERE b.booking_id = %s
+          AND b.user_id = %s;
+    """
+
+    sql_update_booking = """
+        UPDATE national_rail_bookings
+        SET status = 'cancelled'
+        WHERE booking_id = %s
+          AND user_id = %s;
+    """
+
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql_get_booking, (booking_id, user_id))
+                booking = cur.fetchone()
+
+                if not booking:
+                    return False, f"Booking {booking_id} was not found for this user."
+
+                if booking["status"] == "cancelled":
+                    return False, f"Booking {booking_id} is already cancelled."
+
+                amount = float(booking["amount_usd"])
+
+                # Combine travel_date + departure_time
+                departure_dt = datetime.combine(
+                    booking["travel_date"],
+                    booking["departure_time"]
+                )
+
+                now = datetime.now()
+                hours_before = (departure_dt - now).total_seconds() / 3600
+
+                service_type = booking["service_type"]
+
+                if service_type == "normal":
+                    policy_id = "RF001"
+                    if hours_before >= 48:
+                        refund_percent = 100
+                        admin_fee = 0.00
+                        window = "Early cancellation"
+                    elif hours_before >= 24:
+                        refund_percent = 75
+                        admin_fee = 0.50
+                        window = "Standard cancellation"
+                    elif hours_before >= 2:
+                        refund_percent = 50
+                        admin_fee = 0.50
+                        window = "Late cancellation"
+                    else:
+                        refund_percent = 0
+                        admin_fee = 0.00
+                        window = "No refund"
+
+                else:
+                    policy_id = "RF002"
+                    if hours_before >= 48:
+                        refund_percent = 100
+                        admin_fee = 1.00
+                        window = "Early cancellation"
+                    elif hours_before >= 24:
+                        refund_percent = 50
+                        admin_fee = 1.00
+                        window = "Late cancellation"
+                    else:
+                        refund_percent = 0
+                        admin_fee = 0.00
+                        window = "No refund"
+
+                refund_amount = max((amount * refund_percent / 100) - admin_fee, 0)
+
+                cur.execute(sql_update_booking, (booking_id, user_id))
+                conn.commit()
+
+                return True, {
+                    "booking_id": booking_id,
+                    "status": "cancelled",
+                    "service_type": service_type,
+                    "policy_id": policy_id,
+                    "refund_window": window,
+                    "refund_percent": refund_percent,
+                    "admin_fee_usd": admin_fee,
+                    "refund_amount_usd": round(refund_amount, 2),
+                }
+
+    except Exception as e:
+        return False, str(e)
 
 
 # ── AUTHENTICATION QUERIES ────────────────────────────────────────────────────

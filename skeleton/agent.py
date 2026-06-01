@@ -664,7 +664,19 @@ JSON:"""
 
     if any(kw in _lower for kw in _policy_triggers) and not _tool_selected("search_policy", "query"):
         _fallback("search_policy", {"query": user_message}, "policy/refund/compensation query")
-        
+    
+    
+    # 0.4 Cancel booking
+    _booking_id = re.search(r'\bBK-?\d+\b', user_message, re.IGNORECASE)
+
+    if "cancel" in _lower and _booking_id:
+        booking_id = _booking_id.group(0).upper().replace("-", "")
+
+        _fallback(
+            "cancel_booking",
+            {"booking_id": booking_id},
+            "booking cancellation"
+        )
     # 0.5 Booking request — if not logged in, do not call tools
     _booking_triggers = {
         "book me", "book a", "booking", "make a booking",

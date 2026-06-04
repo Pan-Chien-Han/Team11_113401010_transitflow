@@ -44,6 +44,7 @@ from databases.relational.queries import (
     auto_select_adjacent_seats,
     query_user_profile,
     query_user_bookings,
+    query_payment_info,
     execute_booking,
     execute_cancellation,
     query_policy_vector_search,
@@ -180,6 +181,19 @@ TOOLS = [
         ),
         "parameters": {},
         "required": [],
+    },
+    {
+        "name": "get_payment_info",
+        "description": (
+            "Retrieve payment information for a specific booking. "
+            "Use when the logged-in user asks about payment status, paid amount, payment method, receipt, refund status, "
+            "or whether a specific booking has been paid. "
+            "Requires login and a booking reference such as BK-A1B2C3."
+        ),
+        "parameters": {
+            "booking_id": {"type": "string", "description": "Booking reference e.g. BK-A1B2C3"},
+        },
+        "required": ["booking_id"],
     },
     {
         "name": "get_available_seats",
@@ -353,6 +367,19 @@ def _execute_tool(
             if not current_user_email:
                 return json.dumps({"error": "No user is currently logged in."})
             result = query_user_bookings(current_user_email)
+
+        elif tool_name == "get_payment_info":
+            if not current_user_email:
+                return json.dumps({"error": "You must be logged in to view payment information."})
+
+            booking_id = params.get("booking_id", "").strip().upper()
+            if not booking_id:
+                return json.dumps({"error": "Please provide a booking reference."})
+
+            result = query_payment_info(booking_id)
+
+            if not result:
+                result = {"error": f"No payment record found for booking {booking_id}."}   
 
         elif tool_name == "get_available_seats":
             result = query_available_seats(**params)
@@ -618,6 +645,7 @@ JSON:"""
                 "You are a tool router. Call the right tool based on the user message. "
                 f"Logged-in user: {current_user_email or 'none'}. "
                 "My bookings/tickets/travel history → get_user_bookings (no params). "
+                "Payment status/payment method/paid amount/receipt/refund status for a specific booking ID → get_payment_info. "
                 "Book a ticket / make a booking → check_national_rail_availability first, then make_booking. "
                 "Cancel a booking → cancel_booking. "
                 "Policy/rules/refund/cancellation/compensation/luggage/bicycle/pet/food/conduct questions → search_policy. "
@@ -769,6 +797,28 @@ JSON:"""
             "cancel_booking",
             {"booking_id": booking_id, "user_id": target_uid},
             "booking cancellation"
+        )
+
+        # 0.45 Payment info query
+    _payment_booking_id = re.search(r'\bBK-[A-Z0-9]+\b|\bBK[A-Z0-9]+\b', user_message, re.IGNORECASE)
+
+    _payment_triggers = {
+        "payment", "paid", "pay", "receipt", "charge",
+        "charged", "payment status", "payment method",
+        "refund status", "refunded", "amount paid",
+        
+    }
+
+    if (
+        _payment_booking_id
+        and any(kw in _lower for kw in _payment_triggers)
+        and not _tool_selected("get_payment_info", "booking_id")
+    ):
+        booking_id = _payment_booking_id.group(0).upper()
+        _fallback(
+            "get_payment_info",
+            {"booking_id": booking_id},
+            "payment information query"
         )
 
     # ====================================================================
@@ -928,7 +978,8 @@ JSON:"""
         "smoking", "vaping", "noise", "child fare",
         "senior fare", "group fare", "monthly pass",
         "day pass", "ticket change", "seat selection",
-        "overcharge", "tap error", "gate error"}
+        "overcharge", "tap error", "gate error",
+        "payment", "paid", "receipt", "charge", "payment status",}
     
     if tool_results:
         data_block = "\n\n".join(

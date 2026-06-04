@@ -759,7 +759,7 @@ JSON:"""
     
     
     # 0.4 Cancel booking
-    _booking_id = re.search(r'\bBK-?\d+\b', user_message, re.IGNORECASE)
+    _booking_id = re.search(r'\bBK-?[A-Z0-9]+\b', user_message, re.IGNORECASE)
 
     if "cancel" in _lower and _booking_id:
         booking_id = _booking_id.group(0).upper()

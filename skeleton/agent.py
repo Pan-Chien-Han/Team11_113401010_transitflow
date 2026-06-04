@@ -873,35 +873,7 @@ JSON:"""
                 "fully dynamic forced national rail booking"
             )
             # 💡 這裡一樣不加 return，保證它設定好參數後，能平安流向 Step 2 的資料庫執行流程！
-    # 0.45 Seat availability
-    _seat_triggers = {
-        "available seats",
-        "show available seats",
-        "seat availability",
-        "show seats"
-    }
 
-    if any(t in _lower for t in _seat_triggers):
-        _schedule = re.search(r'NR_SCH\d+', user_message, re.IGNORECASE)
-
-        _date = next(
-            (w for w in user_message.split()
-             if re.match(r'\d{4}-\d{2}-\d{2}', w)),
-            None
-        )
-
-        _fare_class = "first" if "first" in _lower else "standard"
-
-        if _schedule and _date:
-            _fallback(
-                "get_available_seats",
-                {
-                    "schedule_id": _schedule.group(0).upper(),
-                    "travel_date": _date,
-                    "fare_class": _fare_class
-                },
-                "seat availability"
-            )
     # 0.5 Booking request — 原本剩餘的查空位邏輯保留在下方，不影響正常流程
     _booking_triggers = {
         "book me", "book a", "booking", "make a booking",

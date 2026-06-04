@@ -329,114 +329,178 @@ def query_metro_fare(schedule_id: str, stops_travelled: int) -> Optional[dict]:
 
 # ── SEAT SELECTION ────────────────────────────────────────────────────────────
 
-def query_user_bookings(user_identifier: str) -> dict:
+def query_available_seats(
+    schedule_id: str,
+    travel_date: str,
+    fare_class: str,
+) -> list[dict]:
     """
-    Return a user's combined booking history.
+    Return available seats for a national rail journey on a given date.
 
-    Accepts either:
-    - email, e.g. user@example.com
-    - user_id, e.g. RU01
+    Args:
+        schedule_id:  e.g. "NR_SCH01"
+        travel_date:  e.g. "2025-06-01"
+        fare_class:   "standard" or "first"
 
-    This keeps both branches working:
-    - main branch / agent.py passes current_user_email
-    - feature branch logic may pass user_id
+    Returns:
+        List of dicts: {seat_id, coach, row, column}
     """
+    raise NotImplementedError("TODO: implement after designing your schema")
+
+
+def auto_select_adjacent_seats(available_seats: list[dict], count: int) -> list[str]:
+    """
+    Select `count` seats that are as close together as possible (same row preferred,
+    then adjacent rows). Returns a list of seat_ids.
+
+    Args:
+        available_seats: output of query_available_seats()
+        count:           number of seats needed
+    """
+    if not available_seats or count <= 0:
+        return []
+    if count >= len(available_seats):
+        return [s["seat_id"] for s in available_seats[:count]]
+
+    from collections import defaultdict
+    rows: dict[int, list[dict]] = defaultdict(list)
+    for seat in available_seats:
+        rows[seat["row"]].append(seat)
+
+    for row_seats in sorted(rows.values(), key=lambda s: s[0]["row"]):
+        if len(row_seats) >= count:
+            return [s["seat_id"] for s in row_seats[:count]]
+
+    sorted_seats = sorted(available_seats, key=lambda s: (s["row"], s["column"]))
+    return [s["seat_id"] for s in sorted_seats[:count]]
+
+
+# ── USER & BOOKING QUERIES ────────────────────────────────────────────────────
+
+def query_user_profile(user_email: str) -> Optional[dict]:
+    """Return a user's profile by email."""
+    # Create the SQL query to fetch the user's basic profile from the database
+    sql = """
+        SELECT user_id, email, full_name, phone, date_of_birth, is_active
+        FROM registered_users
+        WHERE email = %s;
+    """
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, (user_email.strip().lower(),))
+                user = cur.fetchone()
+                
+                if user:
+                    return dict(user)
+                return None
+    except Exception as e:
+        print(f"[Query User Profile Error] 出錯: {e}")
+        return None
+
+
+def query_user_bookings(user_email: str) -> dict:
+    """
+    Return a user's combined booking history (national rail + metro).
+    """
+    # 1. Query the user's National Rail booking records
+    sql_rail = """
+        SELECT 
+            b.booking_id, b.schedule_id, b.origin_station_id, b.destination_station_id,
+            b.travel_date, b.departure_time, b.ticket_type, b.fare_class, 
+            b.coach, b.seat_id, b.amount_usd, b.status
+        FROM national_rail_bookings b
+        JOIN registered_users u ON b.user_id = u.user_id
+        WHERE u.email = %s
+        ORDER BY b.travel_date DESC, b.departure_time DESC;
+    """
+
+    # 2. Query the user's Metro travel/ticket history
+    sql_metro = """
+        SELECT 
+            m.trip_id, m.schedule_id, m.origin_station_id, m.destination_station_id,
+            m.travel_date, m.ticket_type, m.amount_usd, m.status
+        FROM metro_travel_history m
+        JOIN registered_users u ON m.user_id = u.user_id
+        WHERE u.email = %s
+        ORDER BY m.travel_date DESC;
+    """
+
     results = {
         "national_rail": [],
         "metro": []
     }
 
-    is_email = "@" in user_identifier
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                email_clean = user_email.strip().lower()
+                
+                # Fetch rail bookings
+                cur.execute(sql_rail, (email_clean,))
+                rail_rows = cur.fetchall()
+                for row in rail_rows:
+                    r_dict = dict(row)
+                    if r_dict.get("travel_date"):
+                        r_dict["travel_date"] = r_dict["travel_date"].strftime("%Y-%m-%d")
+                    if r_dict.get("departure_time"):
+                        r_dict["departure_time"] = r_dict["departure_time"].strftime("%H:%M")
+                    # Convert NUMERIC type to float to prevent JSON serialization errors
+                    r_dict["amount_usd"] = float(r_dict["amount_usd"]) if r_dict.get("amount_usd") else 0.0
+                    results["national_rail"].append(r_dict)
 
-    if is_email:
-        rail_where = "u.email = %s"
-        metro_where = "u.email = %s"
-        value = user_identifier.strip().lower()
-    else:
-        rail_where = "b.user_id = %s"
-        metro_where = "m.user_id = %s"
-        value = user_identifier.strip()
+                # Fetch metro travel history
+                cur.execute(sql_metro, (email_clean,))
+                metro_rows = cur.fetchall()
+                for row in metro_rows:
+                    m_dict = dict(row)
+                    if m_dict.get("travel_date"):
+                        m_dict["travel_date"] = m_dict["travel_date"].strftime("%Y-%m-%d")
+                    m_dict["amount_usd"] = float(m_dict["amount_usd"]) if m_dict.get("amount_usd") else 0.0
+                    results["metro"].append(m_dict)
 
-    sql_rail = f"""
-        SELECT 
-            b.booking_id,
-            b.schedule_id,
-            b.origin_station_id,
-            b.destination_station_id,
-            b.travel_date,
-            b.departure_time,
-            b.ticket_type,
-            b.fare_class,
-            b.coach,
-            b.seat_id,
-            b.amount_usd,
-            b.status,
-            b.booked_at
-        FROM national_rail_bookings b
-        JOIN registered_users u ON b.user_id = u.user_id
-        WHERE {rail_where}
-        ORDER BY b.travel_date DESC, b.departure_time DESC;
-    """
+                return results
+    except Exception as e:
+        print(f"[Query User Bookings Error] 查詢用戶訂票史失敗: {e}")
+        return {"national_rail": [], "metro": []}
 
-    sql_metro = f"""
-        SELECT 
-            m.trip_id,
-            m.schedule_id,
-            m.origin_station_id,
-            m.destination_station_id,
-            m.travel_date,
-            m.ticket_type,
-            m.amount_usd,
-            m.status
-        FROM metro_travel_history m
-        JOIN registered_users u ON m.user_id = u.user_id
-        WHERE {metro_where}
-        ORDER BY m.travel_date DESC;
+
+def query_payment_info(booking_id: str) -> Optional[dict]:
+    """Return payment record for a booking or metro trip."""
+    sql = """
+        SELECT
+            payment_id,
+            booking_id,
+            amount_usd,
+            method,
+            status,
+            paid_at
+        FROM payments
+        WHERE booking_id = %s;
     """
 
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql_rail, (value,))
-                rail_rows = cur.fetchall()
+                cur.execute(sql, (booking_id.strip().upper(),))
+                row = cur.fetchone()
 
-                for row in rail_rows:
-                    r_dict = dict(row)
+                if not row:
+                    return None
 
-                    if r_dict.get("travel_date"):
-                        r_dict["travel_date"] = r_dict["travel_date"].strftime("%Y-%m-%d")
+                result = dict(row)
 
-                    if r_dict.get("departure_time"):
-                        r_dict["departure_time"] = r_dict["departure_time"].strftime("%H:%M")
+                if result.get("amount_usd") is not None:
+                    result["amount_usd"] = float(result["amount_usd"])
 
-                    if r_dict.get("booked_at"):
-                        r_dict["booked_at"] = r_dict["booked_at"].isoformat()
+                if result.get("paid_at") is not None:
+                    result["paid_at"] = result["paid_at"].isoformat()
 
-                    r_dict["amount_usd"] = float(r_dict["amount_usd"]) if r_dict.get("amount_usd") else 0.0
-
-                    results["national_rail"].append(r_dict)
-
-                cur.execute(sql_metro, (value,))
-                metro_rows = cur.fetchall()
-
-                for row in metro_rows:
-                    m_dict = dict(row)
-
-                    if m_dict.get("travel_date"):
-                        m_dict["travel_date"] = m_dict["travel_date"].strftime("%Y-%m-%d")
-
-                    m_dict["amount_usd"] = float(m_dict["amount_usd"]) if m_dict.get("amount_usd") else 0.0
-
-                    results["metro"].append(m_dict)
-
-                return results
+                return result
 
     except Exception as e:
-        print(f"[Query User Bookings Error] {e}")
-        return {
-            "national_rail": [],
-            "metro": []
-        }
+        print(f"[Query Payment Info Error] 查詢付款資料失敗: {e}")
+        return None
 
 # ── TRANSACTIONAL OPERATIONS ──────────────────────────────────────────────────
 
@@ -954,7 +1018,7 @@ def store_policy_document(
     sql = """
         INSERT INTO policy_documents (title, category, content, embedding, source_file)
         VALUES (%s, %s, %s, %s::vector, %s)
-        RETURNING id 
+        RETURNING id
     """
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
     with _connect() as conn:

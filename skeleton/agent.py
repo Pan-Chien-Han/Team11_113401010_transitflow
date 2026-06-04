@@ -627,8 +627,8 @@ JSON:"""
                 "Age-based fare questions such as child fare, children, minors, senior fare, disabled fare, concession fare → search_policy first. "
                 "Do NOT use get_national_rail_fare or get_metro_fare for age-only fare questions unless origin and destination stations are provided. "
                 "Route/directions/fastest/quickest/how-to-get/path questions → find_route ONLY (never get_metro_fare). "
-                "Metro fare/price/cost/how-much-does-it-cost questions with origin and destination stations → get_metro_fare. "
-                "Rail fare/cost/price questions with origin and destination stations → check_national_rail_availability then get_national_rail_fare. "
+                "Metro fare/price/cost/how-much-does-it-cost questions WITH origin and destination stations → get_metro_fare. "
+                "Rail fare/cost/price questions WITH origin and destination stations → check_national_rail_availability then get_national_rail_fare. "
                 "Schedule/timetable/trains/services questions → check_national_rail_availability or check_metro_availability. "
                             ),
         )
@@ -669,11 +669,13 @@ JSON:"""
     _age_fare_keywords = {
         "child", "children", "minor", "minors", "child fare", "child ticket",
         "senior", "elderly", "disabled", "disability", "concession",
+        "age", "years old", "year old", "5 years old", "five years old",
+        "under 5", "under five", "under age", "kid", "kids"
         
     }
 
     _fare_words = {
-        "fare", "price", "cost", "ticket",
+        "fare", "price", "cost", "ticket","how much"
     }
 
     if (

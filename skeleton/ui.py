@@ -36,6 +36,7 @@ SECRET_QUESTIONS = [
 
 def chat(user_message: str, history_display: list, agent_history: list,
          show_debug: bool, current_user: str):
+    print("CURRENT USER IN CHAT =", current_user)
     if not user_message.strip():
         return history_display, agent_history, gr.update()
 

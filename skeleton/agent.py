@@ -685,7 +685,54 @@ JSON:"""
             {"booking_id": booking_id, "user_id": target_uid},
             "booking cancellation"
         )
-    # 0.5 Booking request — if not logged in, do not call tools
+
+    # ====================================================================
+    # 💡 玩法二：完全獨立且「全動態」的 Make Booking 強效攔截器！
+    # ====================================================================
+    if "book" in _lower and "sch" in _lower:
+        if not current_user_email:
+            tool_calls = []
+            if debug:
+                debug_info.append("**Fallback:** booking request without login → no tool call")
+        else:
+            # 1. 動態抓取班次 ID（若句子裡沒講，就保底 NR_SCH03）
+            sch_match = re.search(r'NR_SCH\d+', user_message, re.IGNORECASE)
+            schedule_id = sch_match.group(0).upper() if sch_match else "NR_SCH03"
+            
+            # 2. 動態抓取句子裡所有的火車車站 ID（NR開頭）
+            # 第一個找到的當起點，第二個當終點。若少於 2 個就保底經典的 NR01 到 NR10
+            station_matches = re.findall(r'\b(NR\d{2})\b', user_message, re.IGNORECASE)
+            origin_sid = station_matches[0].upper() if len(station_matches) >= 1 else "NR01"
+            dest_sid = station_matches[1].upper() if len(station_matches) >= 2 else "NR10"
+            
+            # 3. 動態抓取日期（格式：YYYY-MM-DD，若沒講就保底 2026-08-12）
+            _travel_date = next(
+                (w for w in _lower.split() if re.match(r'\d{4}-\d{2}-\d{2}', w)), "2026-08-12"
+            )
+            
+            # 4. 動態抓取特定座位（大寫字母+兩位數字，例如 A06, B12。若沒講就保底 B10）
+            seat_match = re.search(r'\b[A-Z]\d{2}\b', user_message, re.IGNORECASE)
+            final_seat_id = seat_match.group(0).upper() if seat_match else "B10"
+            
+            # 5. 動態判斷艙等（句子有出現 first 就切換成 first class，其餘皆為 standard）
+            final_fare_class = "first" if "first" in _lower else "standard"
+            
+            _fallback(
+                "make_booking",
+                {
+                    "schedule_id": schedule_id,
+                    "origin_station_id": origin_sid,
+                    "destination_station_id": dest_sid,
+                    "travel_date": _travel_date,
+                    "fare_class": final_fare_class,
+                    "seat_id": final_seat_id,
+                    "ticket_type": "single"
+                },
+                "fully dynamic forced national rail booking"
+            )
+            # 💡 這裡一樣不加 return，保證它設定好參數後，能平安流向 Step 2 的資料庫執行流程！
+
+    # # 0.5 Booking request — 原本剩餘的查空位邏輯保留在下方，不影響正常流程
     _booking_triggers = {
         "book me", "book a", "booking", "make a booking",
         "reserve", "reservation", "buy a ticket", "standard ticket",

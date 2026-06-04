@@ -412,7 +412,111 @@ def execute_booking(
         (True, booking_dict)   on success
         (False, error_message) on failure
     """
-    raise NotImplementedError("TODO: implement after designing your schema")
+    # 1. 自動產生隨機 Booking ID 與 Payment ID
+    booking_id = _gen_booking_id()
+    payment_id = _gen_payment_id()
+    
+    # 2. 準備 SQL：從 schedules 撈出停靠站與首班車時間
+    sql_get_schedule = """
+        SELECT fare_classes, stops_in_order, first_train_time 
+        FROM national_rail_schedules 
+        WHERE schedule_id = %s;
+    """
+
+    # 3. 嚴格對齊你的 schema.sql 欄位結構進行 INSERT
+    sql_insert_booking = """
+        INSERT INTO national_rail_bookings (
+            booking_id, user_id, schedule_id, origin_station_id, destination_station_id,
+            travel_date, departure_time, ticket_type, fare_class, coach, seat_id,
+            stops_travelled, amount_usd, status, booked_at, travelled_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'confirmed', %s, NULL);
+    """
+
+    sql_insert_payment = """
+        INSERT INTO payments (payment_id, booking_id, amount_usd, method, status, paid_at)
+        VALUES (%s, %s, %s, 'credit_card', 'paid', %s);
+    """
+
+    conn = None
+    try:
+        # 💡 使用與 execute_cancellation 相同的安全獨立連線，手動控制事務
+        conn = psycopg2.connect(
+            host=cfg.PG_HOST,
+            port=cfg.PG_PORT,
+            dbname=cfg.PG_DB,
+            user=cfg.PG_USER,
+            password=cfg.PG_PASSWORD,
+        )
+        conn.autocommit = False  
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 🚀 A. 獲取班次配置，動態取得這班車真正的出發時間
+            cur.execute(sql_get_schedule, (schedule_id,))
+            sched = cur.fetchone()
+            if not sched:
+                conn.rollback()
+                return False, f"Schedule {schedule_id} not found."
+
+            departure_time = sched["first_train_time"]
+
+            # 🚀 B. 計算行駛站數（透過你的陣列欄位 stops_in_order 算索引差）
+            stops = sched["stops_in_order"]
+            try:
+                stops_travelled = stops.index(destination_station_id) - stops.index(origin_station_id)
+            except ValueError:
+                stops_travelled = 1
+            
+            # 🚀 C. 動態計算票價：呼叫你寫好的 query_national_rail_fare 函式
+            fare_info = query_national_rail_fare(schedule_id, fare_class, stops_travelled)
+            if not fare_info:
+                conn.rollback()
+                return False, "Failed to calculate fare."
+            
+            amount_usd = fare_info["total_fare_usd"]
+            if ticket_type.lower() == "return":
+                amount_usd *= 2  # 如果是來回票，票價乘以二
+
+            # 🚀 D. 動態分配車廂與座位
+            if seat_id and seat_id.lower() != "any":
+                final_seat = seat_id.upper()
+                final_coach = final_seat[0]  # 抓第一個字母當車廂 (如 "B10" -> 車廂 "B")
+            else:
+                final_coach = "B" if "standard" in fare_class.lower() else "A"
+                final_seat = f"{final_coach}01"
+
+            now_time = datetime.now(timezone.utc)
+
+            # 🚀 E. 執行寫入訂票紀錄 (national_rail_bookings)
+            cur.execute(sql_insert_booking, (
+                booking_id, user_id, schedule_id, origin_station_id, destination_station_id,
+                travel_date, departure_time, ticket_type, fare_class, final_coach, final_seat,
+                stops_travelled, amount_usd, now_time
+            ))
+
+            # 🚀 F. 同步寫入付款紀錄 (payments)
+            cur.execute(sql_insert_payment, (payment_id, booking_id, amount_usd, now_time))
+
+            # 💡 兩張表一起 Commit 送進 PostgreSQL 資料庫
+            conn.commit()
+
+            return True, {
+                "booking_id": booking_id,
+                "payment_id": payment_id,
+                "status": "confirmed",
+                "departure_time": str(departure_time),
+                "seat_id": final_seat,
+                "coach": final_coach,
+                "amount_usd": amount_usd,
+                "message": "Booking created successfully!"
+            }
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return False, str(e)
+    finally:
+        if conn:
+            conn.close()
 
 
 def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | str]:

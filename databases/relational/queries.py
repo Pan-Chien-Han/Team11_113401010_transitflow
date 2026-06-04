@@ -587,6 +587,45 @@ def query_user_bookings(user_identifier: str) -> dict:
             "metro": []
         }
 
+def query_payment_info(booking_id: str) -> Optional[dict]:
+    """
+    Return payment record for a booking or metro trip.
+    """
+    sql = """
+        SELECT
+            payment_id,
+            booking_id,
+            amount_usd,
+            method,
+            status,
+            paid_at
+        FROM payments
+        WHERE booking_id = %s;
+    """
+
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, (booking_id.strip().upper(),))
+                row = cur.fetchone()
+
+                if not row:
+                    return None
+
+                result = dict(row)
+
+                if result.get("amount_usd") is not None:
+                    result["amount_usd"] = float(result["amount_usd"])
+
+                if result.get("paid_at") is not None:
+                    result["paid_at"] = result["paid_at"].isoformat()
+
+                return result
+
+    except Exception as e:
+        print(f"[Query Payment Info Error] {e}")
+        return None
+
 # ── TRANSACTIONAL OPERATIONS ──────────────────────────────────────────────────
 
 def execute_booking(

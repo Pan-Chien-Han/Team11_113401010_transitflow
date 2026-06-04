@@ -33,10 +33,10 @@ import string
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from skeleton import config as cfg
-# 初始化全域密碼雜湊器，解決 'ph' is not defined 的問題
+# Initialize the global password hasher to resolve the 'ph' is not defined error
 ph = PasswordHasher()
 
-# 💡 新增這兩行，定義 RAG 向量搜尋所需的常數
+# Added these two lines to define the constants required for RAG vector search
 VECTOR_TOP_K = 5
 VECTOR_SIMILARITY_THRESHOLD = 0.3
 
@@ -89,7 +89,7 @@ def query_national_rail_availability(
         destination_id:  e.g. "NR05"
         travel_date:     e.g. "2025-06-01" — used to count bookings; omit for general info
     """
-    # 1. 查詢同時停靠起點與終點，且起點站順序在終點站之前的班次
+    # 1. Query schedules that stop at both origin and destination, ensuring origin comes before destination
     sql_schedules = """
         SELECT 
         schedule_id, line, service_type, direction, 
@@ -101,7 +101,7 @@ def query_national_rail_availability(
       AND destination_station_id = %s;
 """
     
-    # 2. 用來統計該班次在特定日期已經有多少張確認的訂票
+    # 2. Used to count how many confirmed bookings exist for the schedule on a specific date
     sql_bookings_count = """
         SELECT COUNT(*) as booked_seats
         FROM national_rail_bookings
@@ -113,7 +113,7 @@ def query_national_rail_availability(
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # 撈出符合路線與站點順序的火車班次
+                # Fetch train schedules matching the route and station order
                 cur.execute(sql_schedules, (origin_id, destination_id))
                 schedules = cur.fetchall()
                 
@@ -122,14 +122,14 @@ def query_national_rail_availability(
                     sch_dict = dict(sch)
                     sch_dict["booked_seats"] = 0
                     
-                    # 如果有傳入 travel_date，計算當天的佔用座位數
+                    # If travel_date is provided, calculate the occupied seats for that day
                     if travel_date:
                         cur.execute(sql_bookings_count, (sch_dict["schedule_id"], travel_date))
                         bk_res = cur.fetchone()
                         if bk_res and bk_res["booked_seats"]:
                             sch_dict["booked_seats"] = bk_res["booked_seats"]
                     
-                    # 將 TIME 物件轉為字串，避免前端/LLM 解析 JSON 時崩潰
+                    # Convert TIME objects to strings to prevent JSON serialization errors on the frontend/LLM
                     if sch_dict.get("first_train_time"):
                         sch_dict["first_train_time"] = sch_dict["first_train_time"].strftime("%H:%M")
                     if sch_dict.get("last_train_time"):
@@ -160,7 +160,7 @@ def query_national_rail_fare(
     Returns:
         dict with fare_class, base_fare_usd, per_stop_rate_usd, total_fare_usd
     """
-    # 🌟 正統 relational 設計：從 national_rail_schedules 資料表中撈出對應班次的 fare_classes (JSONB 結構)
+    # Proper relational design: Fetch the fare_classes (JSONB structure) for the corresponding schedule from national_rail_schedules table
     sql = """
         SELECT fare_classes
         FROM national_rail_schedules
@@ -176,31 +176,31 @@ def query_national_rail_fare(
                     print(f"[Query Rail Fare] 找不到對應班次 {schedule_id} 的票價資料")
                     return None
                 
-                # 1. 取得 JSONB 欄位中的票價配置
+                # 1. Retrieve the fare configuration from the JSONB field
                 fare_data = res["fare_classes"]
                 
-                # 2. 為了防止小模型傳入大小寫錯亂，進行不敏感處理（相容 standard / first）
+                # 2. Case-insensitive handling to prevent issues if a smaller LLM passes incorrect casing (supports standard / first)
                 f_class = "first" if "first" in fare_class.lower() else "standard"
                 
                 class_settings = fare_data.get(f_class)
                 if not class_settings:
-                    # 如果找不到該類別，保底使用標準票價
+                    # Fall back to standard fare if the requested class is not found
                     class_settings = fare_data.get("standard")
                     f_class = "standard"
                     
                 if not class_settings:
                     return None
                 
-                # 3. 讀取費率並轉換為 float，避免 NUMERIC 型態造成的 JSON 解析異常
+                # 3. Read rates and convert to float to avoid JSON serialization issues caused by the NUMERIC type
                 base_fare = float(class_settings.get("base_fare_usd", 0.0))
                 per_stop_rate = float(class_settings.get("per_stop_rate_usd", 0.0))
                 
-                # 🌟 核心計價公式：總票價 = 基礎費率 + (移動站數 * 每站費率)
-                # 如果小模型耍笨傳入 stops_travelled = 0，我們自動防禦性保底計算為 4 站
+                # Core pricing formula: total fare = base fare + (stops travelled * rate per stop)
+                # Defensive fallback: if a smaller LLM incorrectly passes stops_travelled = 0, default to 4 stops
                 actual_stops = int(stops_travelled) if int(stops_travelled) > 0 else 4
                 total_fare = base_fare + (actual_stops * per_stop_rate)
                 
-                # 4. 嚴格對齊原始註解規定的 Returns 欄位結構，一字不差！
+                # 4. Strictly align with the Returns field structure specified in the original docstring, word for word!
                 return {
                     "fare_class": f_class,
                     "base_fare_usd": base_fare,
@@ -379,7 +379,7 @@ def auto_select_adjacent_seats(available_seats: list[dict], count: int) -> list[
 
 def query_user_profile(user_email: str) -> Optional[dict]:
     """Return a user's profile by email."""
-    # 建立 SQL 查詢語法，從資料庫撈出該使用者的基本資料
+    # Create the SQL query to fetch the user's basic profile from the database
     sql = """
         SELECT user_id, email, full_name, phone, date_of_birth, is_active
         FROM registered_users
@@ -403,7 +403,7 @@ def query_user_bookings(user_email: str) -> dict:
     """
     Return a user's combined booking history (national rail + metro).
     """
-    # 1. 查詢該使用者的 National Rail 火車訂票紀錄
+    # 1. Query the user's National Rail booking records
     sql_rail = """
         SELECT 
             b.booking_id, b.schedule_id, b.origin_station_id, b.destination_station_id,
@@ -415,7 +415,7 @@ def query_user_bookings(user_email: str) -> dict:
         ORDER BY b.travel_date DESC, b.departure_time DESC;
     """
 
-    # 2. 查詢該使用者的 Metro 捷運搭乘/購票紀錄
+    # 2. Query the user's Metro travel/ticket history
     sql_metro = """
         SELECT 
             m.trip_id, m.schedule_id, m.origin_station_id, m.destination_station_id,
@@ -436,7 +436,7 @@ def query_user_bookings(user_email: str) -> dict:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 email_clean = user_email.strip().lower()
                 
-                # 撈取火車訂票
+                # Fetch rail bookings
                 cur.execute(sql_rail, (email_clean,))
                 rail_rows = cur.fetchall()
                 for row in rail_rows:
@@ -445,11 +445,11 @@ def query_user_bookings(user_email: str) -> dict:
                         r_dict["travel_date"] = r_dict["travel_date"].strftime("%Y-%m-%d")
                     if r_dict.get("departure_time"):
                         r_dict["departure_time"] = r_dict["departure_time"].strftime("%H:%M")
-                    # 將 NUMERIC 型態轉為 float，避免 JSON 解析崩潰
+                    # Convert NUMERIC type to float to prevent JSON serialization errors
                     r_dict["amount_usd"] = float(r_dict["amount_usd"]) if r_dict.get("amount_usd") else 0.0
                     results["national_rail"].append(r_dict)
 
-                # 撈取捷運歷史
+                # Fetch metro travel history
                 cur.execute(sql_metro, (email_clean,))
                 metro_rows = cur.fetchall()
                 for row in metro_rows:
@@ -499,18 +499,18 @@ def execute_booking(
         (True, booking_dict)   on success
         (False, error_message) on failure
     """
-    # 1. 自動產生隨機 Booking ID 與 Payment ID
+    # 1. Automatically generate random Booking ID and Payment ID
     booking_id = _gen_booking_id()
     payment_id = _gen_payment_id()
     
-    # 2. 準備 SQL：從 schedules 撈出停靠站與首班車時間
+    # 2. Prepare SQL: Fetch stops and the first train time from schedules
     sql_get_schedule = """
         SELECT fare_classes, stops_in_order, first_train_time 
         FROM national_rail_schedules 
         WHERE schedule_id = %s;
     """
 
-    # 3. 嚴格對齊你的 schema.sql 欄位結構進行 INSERT
+    # 3. Strictly align with the schema.sql field structure for the INSERT statement
     sql_insert_booking = """
         INSERT INTO national_rail_bookings (
             booking_id, user_id, schedule_id, origin_station_id, destination_station_id,
@@ -526,7 +526,7 @@ def execute_booking(
 
     conn = None
     try:
-        # 💡 使用與 execute_cancellation 相同的安全獨立連線，手動控制事務
+        # Use a secure, isolated connection identical to execute_cancellation to manually manage the transaction
         conn = psycopg2.connect(
             host=cfg.PG_HOST,
             port=cfg.PG_PORT,
@@ -537,7 +537,7 @@ def execute_booking(
         conn.autocommit = False  
 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # 🚀 A. 獲取班次配置，動態取得這班車真正的出發時間
+            # A. Fetch the schedule configuration to dynamically get the true departure time for this train
             cur.execute(sql_get_schedule, (schedule_id,))
             sched = cur.fetchone()
             if not sched:
@@ -546,14 +546,14 @@ def execute_booking(
 
             departure_time = sched["first_train_time"]
 
-            # 🚀 B. 計算行駛站數（透過你的陣列欄位 stops_in_order 算索引差）
+            # B. Calculate the number of stops travelled (using the index difference in the stops_in_order array field)
             stops = sched["stops_in_order"]
             try:
                 stops_travelled = stops.index(destination_station_id) - stops.index(origin_station_id)
             except ValueError:
                 stops_travelled = 1
             
-            # 🚀 C. 動態計算票價：呼叫你寫好的 query_national_rail_fare 函式
+            # C. Dynamically calculate the fare by calling the predefined query_national_rail_fare function
             fare_info = query_national_rail_fare(schedule_id, fare_class, stops_travelled)
             if not fare_info:
                 conn.rollback()
@@ -561,29 +561,29 @@ def execute_booking(
             
             amount_usd = fare_info["total_fare_usd"]
             if ticket_type.lower() == "return":
-                amount_usd *= 2  # 如果是來回票，票價乘以二
+                amount_usd *= 2  # Double the fare if it is a round-trip ticket
 
-            # 🚀 D. 動態分配車廂與座位
+            # D. Dynamically assign the coach and seat
             if seat_id and seat_id.lower() != "any":
                 final_seat = seat_id.upper()
-                final_coach = final_seat[0]  # 抓第一個字母當車廂 (如 "B10" -> 車廂 "B")
+                final_coach = final_seat[0]  # Use the first letter as the coach identifier (e.g., "B10" -> Coach "B")
             else:
                 final_coach = "B" if "standard" in fare_class.lower() else "A"
                 final_seat = f"{final_coach}01"
 
             now_time = datetime.now(timezone.utc)
 
-            # 🚀 E. 執行寫入訂票紀錄 (national_rail_bookings)
+            # E. Execute the write operation for the booking record (national_rail_bookings)
             cur.execute(sql_insert_booking, (
                 booking_id, user_id, schedule_id, origin_station_id, destination_station_id,
                 travel_date, departure_time, ticket_type, fare_class, final_coach, final_seat,
                 stops_travelled, amount_usd, now_time
             ))
 
-            # 🚀 F. 同步寫入付款紀錄 (payments)
+            # F. Simultaneously execute the write operation for the payment record (payments)
             cur.execute(sql_insert_payment, (payment_id, booking_id, amount_usd, now_time))
 
-            # 💡 兩張表一起 Commit 送進 PostgreSQL 資料庫
+            # Commit both table operations together into the PostgreSQL database
             conn.commit()
 
             return True, {
@@ -751,11 +751,11 @@ def register_user(first_name: str, surname: str, email: str, password: str, secr
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     user_id = f"RU-{suffix}"
     
-    # 🔒 安全升級：密碼與安全問答全部進行 Argon2 雜湊加密
+    # Security Upgrade: Encrypt both password and secret answer using Argon2 hashing
     hashed_password = ph.hash(password)
     hashed_answer = ph.hash(secret_answer.strip().lower()) # 轉小寫再雜湊，確保驗證時大小寫不敏感
     
-    # 💡 修正 1：移除非此資料表的欄位，加入 phone 與 date_of_birth
+    # Fix 1: Remove fields that do not belong to this table, and add phone and date_of_birth
     sql_user = """
         INSERT INTO registered_users (
             user_id, email, full_name, phone, date_of_birth, registered_at, is_active
@@ -763,7 +763,7 @@ def register_user(first_name: str, surname: str, email: str, password: str, secr
         VALUES (%s, %s, %s, %s, %s, %s, %s);
     """
     
-    # 💡 修正 2：將密碼雜湊與安全問答雜湊一起寫入憑證表
+    # Fix 2: Write both the password hash and secret answer hash into the credentials table
     sql_cred = """
         INSERT INTO user_credentials (user_id, password_hash, secret_question, secret_answer_hash, created_at)
         VALUES (%s, %s, %s, %s, %s);
@@ -778,13 +778,13 @@ def register_user(first_name: str, surname: str, email: str, password: str, secr
             now_time = datetime.now(timezone.utc)
             full_name = f"{first_name.strip()} {surname.strip()}"
             
-            # 1. 寫入 registered_users
+            # 1. Write to registered_users
             cur.execute(sql_user, (
                 user_id, email.strip().lower(), full_name, 
                 phone, date_of_birth, now_time, True
             ))
             
-            # 2. 寫入 user_credentials
+            # 2. Write to user_credentials
             cur.execute(sql_cred, (user_id, hashed_password, secret_question, hashed_answer, now_time))
             
         conn.commit()
@@ -837,7 +837,7 @@ def login_user(email: str, password: str) -> Optional[dict]:
                 input_password = str(password).strip()
                 
                 try:
-                    # 🔒 安全校驗邏輯：如果是相容明碼（非 $argon2 開頭），就直接比對；否則用 ph.verify
+                    # Security Verification Logic: If it is a compatible plaintext password (does not start with $argon2), compare directly; otherwise, use ph.verify
                     if db_password.startswith("$argon2"):
                         ph.verify(db_password, input_password)
                     else:
@@ -906,7 +906,7 @@ def verify_secret_answer(email: str, answer: str) -> bool:
                 db_answer_hash = res[0]
                 input_answer = answer.strip().lower()
                 
-                # 🔒 支持安全問答雜湊驗證與舊明碼相容
+                # Supports security question hash verification with backward compatibility for legacy plaintext
                 if db_answer_hash.startswith("$argon2"):
                     try:
                         ph.verify(db_answer_hash, input_answer)
@@ -921,7 +921,7 @@ def verify_secret_answer(email: str, answer: str) -> bool:
 
 def update_password(email: str, new_password: str) -> bool:
     """Update the password for a user. Returns True if the row was updated."""
-    # 🔒 加密新密碼
+    # Encrypt the new password
     hashed_password = ph.hash(new_password)
     
     sql = """

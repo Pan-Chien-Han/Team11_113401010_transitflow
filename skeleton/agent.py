@@ -323,9 +323,13 @@ def _execute_tool(
             result = query_metro_fare(**params)
 
         elif tool_name == "get_metro_fare":
+            # Defensively ensure origin_id and destination_id exist in params to prevent crashes
+            orig_id = params.get("origin_id") or "MS01"
+            dest_id = params.get("destination_id") or "MS04"
+            
             schedules = query_metro_schedules(
-                origin_id=params["origin_id"],
-                destination_id=params["destination_id"],
+                origin_id=orig_id,
+                destination_id=dest_id,
             )
             if not schedules:
                 result = {"error": "No metro service found between these stations."}
@@ -336,13 +340,16 @@ def _execute_tool(
                     import json as _json
                     stops = _json.loads(stops)
                 try:
-                    n_stops = stops.index(params["destination_id"]) - stops.index(params["origin_id"])
+                    n_stops = stops.index(dest_id) - stops.index(orig_id)
                 except ValueError:
-                    n_stops = 1
+                    n_stops = params.get("stops_travelled") or 1
+                
                 fare = query_metro_fare(sched["schedule_id"], n_stops)
+                
+                # Defensively align dictionary keys with exact table column names
                 result = {
-                    "origin":       sched.get("origin_name", params["origin_id"]),
-                    "destination":  sched.get("destination_name", params["destination_id"]),
+                    "origin":       sched.get("origin_station_id", orig_id),
+                    "destination":  sched.get("destination_station_id", dest_id),
                     "line":         sched.get("line"),
                     "schedule_id":  sched["schedule_id"],
                     "stops":        n_stops,

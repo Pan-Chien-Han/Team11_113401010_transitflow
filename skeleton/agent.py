@@ -624,12 +624,13 @@ JSON:"""
                 "Lost property/lost wallet/lost item/lost ticket/priority seating/accessibility/quiet zone/smoking/noise/"
                 "baby facilities/ticket changes/seat selection/child fares/senior fares/group fares/payment/overcharge/"
                 "weather/strike/service cancellation questions → search_policy. "
+                "Age-based fare questions such as child fare, children, minors, senior fare, disabled fare, concession fare → search_policy first. "
+                "Do NOT use get_national_rail_fare or get_metro_fare for age-only fare questions unless origin and destination stations are provided. "
                 "Route/directions/fastest/quickest/how-to-get/path questions → find_route ONLY (never get_metro_fare). "
-                "Metro fare/price/cost/how-much-does-it-cost questions → get_metro_fare. "
-                "Rail fare/cost/price questions → check_national_rail_availability then get_national_rail_fare. "
+                "Metro fare/price/cost/how-much-does-it-cost questions with origin and destination stations → get_metro_fare. "
+                "Rail fare/cost/price questions with origin and destination stations → check_national_rail_availability then get_national_rail_fare. "
                 "Schedule/timetable/trains/services questions → check_national_rail_availability or check_metro_availability. "
-                "Only call a tool when needed. Output nothing except tool calls."
-            ),
+                            ),
         )
         if debug:
             debug_info.append(f"**Tool selection (native):** {tool_calls}")
@@ -663,6 +664,27 @@ JSON:"""
         tool_calls = [{"name": name, "params": params}]
         if debug:
             debug_info.append(f"**Fallback:** {reason} → {name}({params})")
+                
+    # 0.0 Age-based fare / concession policy questions
+    _age_fare_keywords = {
+        "child", "children", "minor", "minors", "child fare", "child ticket",
+        "senior", "elderly", "disabled", "disability", "concession",
+        
+    }
+
+    _fare_words = {
+        "fare", "price", "cost", "ticket",
+    }
+
+    if (
+        any(kw in _lower for kw in _age_fare_keywords)
+        and any(kw in _lower for kw in _fare_words)
+    ):
+        _fallback(
+            "search_policy",
+            {"query": user_message},
+            "age-based fare policy query"
+        )
 
     # 0. Policy / refund / compensation questions — override wrong tool selections
     _policy_triggers = {

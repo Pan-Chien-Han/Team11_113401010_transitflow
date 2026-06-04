@@ -8,8 +8,6 @@ This script:
   2. Embeds each document using the configured LLM provider
   3. Stores the text + vector in PostgreSQL (policy_documents table)
 
-Note: Gemini free tier has ~1500 requests/minute — this script makes ~13 calls, well within limits.
-
 Students: To extend the assistant's knowledge, add entries to the JSON files in
 train-mock-data/ and re-run this script.
 """
@@ -41,7 +39,7 @@ def _text(data):
 def build_documents():
     docs = []
 
-    # refund_policy.json — one document per policy entry
+    # ── refund_policy.json — one document per refund/compensation policy ──
     for policy in _load("refund_policy.json"):
         docs.append({
             "title": policy["label"],
@@ -50,36 +48,65 @@ def build_documents():
             "content": _text(policy),
         })
 
-    # ticket_types.json — one document per ticket type
+    # ── ticket_types.json — one document per ticket type ──
     for tt in _load("ticket_types.json"):
         docs.append({
-            "title": f"Ticket Type: {tt['display_name']}",
-            "category": "booking",
+            "title": f"Ticket Type — {tt['display_name']}",
+            "category": "ticket_type",
             "source_file": "ticket_types.json",
             "content": _text(tt),
         })
 
-    # booking_rules.json — one document per network section
+    # ── booking_rules.json — split into one document per network/topic ──
     br = _load("booking_rules.json")
-    for section in ("national_rail", "metro", "general_rules"):
-        if section in br:
+
+    for network in ("national_rail", "metro"):
+        if network in br:
+            for topic, content in br[network].items():
+                docs.append({
+                    "title": f"Booking Rule — {network.replace('_', ' ').title()} — {topic.replace('_', ' ').title()}",
+                    "category": topic,
+                    "source_file": "booking_rules.json",
+                    "content": _text({
+                        "network": network,
+                        "topic": topic,
+                        topic: content,
+                    }),
+                })
+
+    if "general_rules" in br:
+        for topic, content in br["general_rules"].items():
             docs.append({
-                "title": f"Booking Rules — {section.replace('_', ' ').title()}",
-                "category": "booking",
+                "title": f"Booking Rule — General — {topic.replace('_', ' ').title()}",
+                "category": topic,
                 "source_file": "booking_rules.json",
-                "content": _text({section: br[section]}),
+                "content": _text({
+                    "section": "general_rules",
+                    "topic": topic,
+                    topic: content,
+                }),
             })
 
-    # travel_policies.json — one document per network section
+    # ── travel_policies.json — split into one document per network/topic ──
+    # This is important for queries like:
+    # "I lost my wallet", "Can I bring a pet?", "Can I bring luggage?"
+    # If we store the whole metro/national_rail section as one huge document,
+    # vector search may retrieve unrelated policies.
     tp = _load("travel_policies.json")
-    for section in ("metro", "national_rail"):
-        if section in tp:
-            docs.append({
-                "title": f"Travel Policies — {section.replace('_', ' ').title()}",
-                "category": "conduct",
-                "source_file": "travel_policies.json",
-                "content": _text({section: tp[section]}),
-            })
+
+    for network in ("metro", "national_rail"):
+        if network in tp:
+            for topic, content in tp[network].items():
+                docs.append({
+                    "title": f"Travel Policy — {network.replace('_', ' ').title()} — {topic.replace('_', ' ').title()}",
+                    "category": topic,
+                    "source_file": "travel_policies.json",
+                    "content": _text({
+                        "network": network,
+                        "topic": topic,
+                        topic: content,
+                    }),
+                })
 
     return docs
 
@@ -89,14 +116,14 @@ def seed():
     print(f"📄 Embedding {len(documents)} policy documents using {llm.chat_provider}...\n")
 
     for i, doc in enumerate(documents):
-        print(f"  [{i+1}/{len(documents)}] Embedding: {doc['title']}")
+        print(f"  [{i + 1}/{len(documents)}] Embedding: {doc['title']}")
 
         try:
             embedding = llm.embed(doc["content"])
 
             if len(embedding) != llm.embed_dim:
                 print(f"    ⚠️  Unexpected embedding dim: {len(embedding)} (expected {llm.embed_dim})")
-                print(f"    Update GEMINI_EMBED_DIM or OLLAMA_EMBED_DIM in skeleton/config.py")
+                print("    Update GEMINI_EMBED_DIM or OLLAMA_EMBED_DIM in skeleton/config.py")
                 sys.exit(1)
 
             doc_id = store_policy_document(
@@ -119,7 +146,7 @@ def seed():
     print("   Test with a similarity search:")
     print("   >>> from skeleton.llm_provider import llm")
     print("   >>> from databases.relational.queries import query_policy_vector_search")
-    print("   >>> results = query_policy_vector_search(llm.embed('can I get a refund for a delay?'))")
+    print("   >>> results = query_policy_vector_search(llm.embed('I lost my wallet, what should I do?'))")
     print("   >>> print(results[0]['title'])")
 
 

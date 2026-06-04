@@ -304,6 +304,7 @@ get_available_seats(schedule_id, travel_date, fare_class)
 make_booking(schedule_id, origin_station_id, destination_station_id, travel_date, fare_class, seat_id, ticket_type?)
 cancel_booking(booking_id)
 get_user_bookings()
+get_payment_info(booking_id)
 search_policy(query)
 find_alternative_routes(origin_id, destination_id, avoid_station_id, network?)
 get_delay_ripple(station_id, hops?)"""
@@ -743,6 +744,39 @@ JSON:"""
             "age-based fare policy query"
         )
 
+    # 0.35 Payment info query — must run BEFORE generic policy search
+    _payment_booking_id = re.search(
+        r'\bBK-[A-Z0-9]+\b|\bBK[A-Z0-9]+\b|\bBK\d+\b',
+        user_message,
+        re.IGNORECASE
+    )
+
+    _payment_triggers = {
+        "payment", "paid", "pay", "receipt", "charge",
+        "charged", "payment status", "payment method",
+        "refund status", "refunded", "amount paid",
+        "my payment", "my payment status"
+    }
+
+    if any(kw in _lower for kw in _payment_triggers):
+        if _payment_booking_id:
+            booking_id = _payment_booking_id.group(0).upper()
+            _fallback(
+                "get_payment_info",
+                {"booking_id": booking_id},
+                "payment information query"
+            )
+        elif current_user_email:
+            _fallback(
+                "get_user_bookings",
+                {},
+                "payment status query without booking id"
+            )
+        else:
+            tool_calls = []
+            if debug:
+                debug_info.append("**Fallback:** payment status query without login → no tool call")
+
     # 0. Policy / refund / compensation questions — override wrong tool selections
     _policy_triggers = {
     # Refund / delay / cancellation
@@ -771,7 +805,7 @@ JSON:"""
         # Ticket / fare rules
         "ticket type", "ticket validity", "child fare", "children",
         "senior fare", "disabled", "disability", "concession",
-        "group fare", "payment", "booking confirmation",
+        "group fare", "payment rule", "accepted payment", "payment method policy", "booking confirmation",
         "advance booking", "seat selection", "change ticket",
         "ticket change", "change my ticket", "monthly pass",
         "season pass", "day pass",
@@ -806,27 +840,7 @@ JSON:"""
             "booking cancellation"
         )
 
-        # 0.45 Payment info query
-    _payment_booking_id = re.search(r'\bBK-[A-Z0-9]+\b|\bBK[A-Z0-9]+\b', user_message, re.IGNORECASE)
-
-    _payment_triggers = {
-        "payment", "paid", "pay", "receipt", "charge",
-        "charged", "payment status", "payment method",
-        "refund status", "refunded", "amount paid",
         
-    }
-
-    if (
-        _payment_booking_id
-        and any(kw in _lower for kw in _payment_triggers)
-        and not _tool_selected("get_payment_info", "booking_id")
-    ):
-        booking_id = _payment_booking_id.group(0).upper()
-        _fallback(
-            "get_payment_info",
-            {"booking_id": booking_id},
-            "payment information query"
-        )
 
     # ====================================================================
     # 💡 玩法二：完全獨立且「全動態」的 Make Booking 強效攔截器！

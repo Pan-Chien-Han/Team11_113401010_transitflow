@@ -524,7 +524,10 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
     Cancel a national rail booking owned by the given user.
     Calculates refund based on service type and hours before departure.
     """
+    # Clean the input to get a base version without hyphen for flexible matching
+    clean_id = booking_id.replace("-", "").upper()
 
+    # Supports matching either the exact ID or the stripped version
     sql_get_booking = """
         SELECT 
             b.booking_id, b.user_id, b.schedule_id, b.travel_date,
@@ -532,18 +535,10 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
             s.service_type
         FROM national_rail_bookings b
         JOIN national_rail_schedules s ON b.schedule_id = s.schedule_id
-        WHERE b.booking_id = %s
+        WHERE (b.booking_id = %s OR REPLACE(b.booking_id, '-', '') = %s)
           AND b.user_id = %s;
     """
 
-    sql_update_booking = """
-        UPDATE national_rail_bookings
-        SET status = 'cancelled'
-        WHERE booking_id = %s
-          AND user_id = %s;
-    """
-
-    # 💡 核心修改 1：新增更新 payments 資料表的 SQL 語句
     sql_update_payment = """
         UPDATE payments
         SET status = 'refunded'
@@ -552,7 +547,6 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
 
     conn = None
     try:
-        # 💡 核心修改 2：手動建立一個未開啟 autocommit 的獨立連線，確保事務安全
         conn = psycopg2.connect(
             host=cfg.PG_HOST,
             port=cfg.PG_PORT,
@@ -563,7 +557,8 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
         conn.autocommit = False  
 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql_get_booking, (booking_id, user_id))
+            # Pass both the original input and the cleaned version to match the flexible WHERE clause
+            cur.execute(sql_get_booking, (booking_id, clean_id, user_id))
             booking = cur.fetchone()
 
             if not booking:
@@ -574,17 +569,20 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                 conn.rollback()
                 return False, f"Booking {booking_id} is already cancelled."
 
+            # Fetch the actual booking_id from DB to ensure updates use the precise primary key format
+            real_booking_id = booking["booking_id"]
+
+            # Dynamic UPDATE using the correct primary key format found in the DB
+            sql_update_booking = """
+                UPDATE national_rail_bookings
+                SET status = 'cancelled'
+                WHERE booking_id = %s;
+            """
+            
             amount = float(booking["amount_usd"])
-
-            # Combine travel_date + departure_time
-            departure_dt = datetime.combine(
-                booking["travel_date"],
-                booking["departure_time"]
-            )
-
+            departure_dt = datetime.combine(booking["travel_date"], booking["departure_time"])
             now = datetime.now()
             hours_before = (departure_dt - now).total_seconds() / 3600
-
             service_type = booking["service_type"]
 
             if service_type == "normal":
@@ -622,15 +620,14 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
 
             refund_amount = max((amount * refund_percent / 100) - admin_fee, 0)
 
-            # 💡 核心修改 3：依序執行訂單與付款狀態更新
-            cur.execute(sql_update_booking, (booking_id, user_id))
-            cur.execute(sql_update_payment, (booking_id,))
+            # Execute updates with the precise database-matching ID
+            cur.execute(sql_update_booking, (real_booking_id,))
+            cur.execute(sql_update_payment, (real_booking_id,))
             
-            # 手動 Commit 提交，讓 pgAdmin 的兩張 table 同步更改
             conn.commit()
 
             return True, {
-                "booking_id": booking_id,
+                "booking_id": real_booking_id,
                 "status": "cancelled",
                 "service_type": service_type,
                 "policy_id": policy_id,

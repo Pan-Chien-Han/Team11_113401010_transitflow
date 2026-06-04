@@ -290,99 +290,142 @@ def auto_select_adjacent_seats(available_seats: list[dict], count: int) -> list[
 
 # ── USER & BOOKING QUERIES ────────────────────────────────────────────────────
 
-def query_user_profile(user_email: str) -> Optional[dict]:
-    """Return a user's profile by email."""
-    # 建立 SQL 查詢語法，從資料庫撈出該使用者的基本資料
+def query_user_profile(email: str) -> Optional[dict]:
+    """
+    Return one active registered user by email.
+    """
     sql = """
-        SELECT user_id, email, full_name, phone, date_of_birth, is_active
+        SELECT
+            user_id,
+            full_name,
+            email,
+            phone,
+            date_of_birth,
+            registered_at,
+            is_active
         FROM registered_users
-        WHERE email = %s;
+        WHERE email = %s
+          AND is_active = TRUE
     """
+
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql, (user_email.strip().lower(),))
-                user = cur.fetchone()
-                
-                if user:
-                    return dict(user)
-                return None
+                cur.execute(sql, (email.strip().lower(),))
+                row = cur.fetchone()
+
+                if not row:
+                    return None
+
+                return dict(row)
+
     except Exception as e:
-        print(f"[Query User Profile Error] 出錯: {e}")
+        print(f"[Query User Profile Error] {e}")
         return None
-
-
-def query_user_bookings(user_email: str) -> dict:
+def query_user_bookings(user_id: str) -> list[dict]:
     """
-    Return a user's combined booking history (national rail + metro).
+    Return all bookings for a user.
     """
-    # 1. 查詢該使用者的 National Rail 火車訂票紀錄
-    sql_rail = """
-        SELECT 
-            b.booking_id, b.schedule_id, b.origin_station_id, b.destination_station_id,
-            b.travel_date, b.departure_time, b.ticket_type, b.fare_class, 
-            b.coach, b.seat_id, b.amount_usd, b.status
-        FROM national_rail_bookings b
-        JOIN registered_users u ON b.user_id = u.user_id
-        WHERE u.email = %s
-        ORDER BY b.travel_date DESC, b.departure_time DESC;
+    sql = """
+        SELECT
+            booking_id,
+            schedule_id,
+            origin_station_id,
+            destination_station_id,
+            travel_date,
+            fare_class,
+            seat_id,
+            status,
+            amount_usd,
+            booked_at
+        FROM national_rail_bookings
+        WHERE user_id = %s
+        ORDER BY booked_at DESC
     """
-
-    # 2. 查詢該使用者的 Metro 捷運搭乘/購票紀錄
-    sql_metro = """
-        SELECT 
-            m.trip_id, m.schedule_id, m.origin_station_id, m.destination_station_id,
-            m.travel_date, m.ticket_type, m.amount_usd, m.status
-        FROM metro_travel_history m
-        JOIN registered_users u ON m.user_id = u.user_id
-        WHERE u.email = %s
-        ORDER BY m.travel_date DESC;
-    """
-
-    results = {
-        "national_rail": [],
-        "metro": []
-    }
 
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                email_clean = user_email.strip().lower()
-                
-                # 撈取火車訂票
-                cur.execute(sql_rail, (email_clean,))
-                rail_rows = cur.fetchall()
-                for row in rail_rows:
-                    r_dict = dict(row)
-                    if r_dict.get("travel_date"):
-                        r_dict["travel_date"] = r_dict["travel_date"].strftime("%Y-%m-%d")
-                    if r_dict.get("departure_time"):
-                        r_dict["departure_time"] = r_dict["departure_time"].strftime("%H:%M")
-                    # 將 NUMERIC 型態轉為 float，避免 JSON 解析崩潰
-                    r_dict["amount_usd"] = float(r_dict["amount_usd"]) if r_dict.get("amount_usd") else 0.0
-                    results["national_rail"].append(r_dict)
+                cur.execute(sql, (user_id,))
+                return [dict(row) for row in cur.fetchall()]
 
-                # 撈取捷運歷史
-                cur.execute(sql_metro, (email_clean,))
-                metro_rows = cur.fetchall()
-                for row in metro_rows:
-                    m_dict = dict(row)
-                    if m_dict.get("travel_date"):
-                        m_dict["travel_date"] = m_dict["travel_date"].strftime("%Y-%m-%d")
-                    m_dict["amount_usd"] = float(m_dict["amount_usd"]) if m_dict.get("amount_usd") else 0.0
-                    results["metro"].append(m_dict)
-
-                return results
     except Exception as e:
-        print(f"[Query User Bookings Error] 查詢用戶訂票史失敗: {e}")
-        return {"national_rail": [], "metro": []}
+        print(f"[Query User Bookings Error] {e}")
+        return []
 
+def query_available_seats(
+    schedule_id: str,
+    travel_date: str,
+    fare_class: str,
+) -> list[dict]:
+    """
+    Return available seats for a national rail journey on a given date.
+    """
 
-def query_payment_info(booking_id: str) -> Optional[dict]:
-    """Return payment record for a booking or metro trip."""
-    raise NotImplementedError("TODO: implement after designing your schema")
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
 
+                cur.execute(
+                    """
+                    SELECT coaches
+                    FROM national_rail_seat_layouts
+                    WHERE schedule_id = %s
+                    """,
+                    (schedule_id,)
+                )
 
+                row = cur.fetchone()
+
+                if not row:
+                    return []
+
+                coaches = row["coaches"]
+
+                cur.execute(
+                    """
+                    SELECT seat_id
+                    FROM national_rail_bookings
+                    WHERE schedule_id = %s
+                      AND travel_date = %s
+                      AND status NOT IN ('cancelled', 'refunded')
+                      AND seat_id IS NOT NULL
+                    """,
+                    (schedule_id, travel_date)
+                )
+
+                booked_seats = {
+                    r["seat_id"]
+                    for r in cur.fetchall()
+                }
+
+        available = []
+
+        for coach in coaches:
+            coach_name = coach["coach"]
+            coach_class = coach["fare_class"]
+
+            if coach_class.lower() != fare_class.lower():
+                continue
+
+            for seat in coach["seats"]:
+                seat_id = seat["seat_id"]
+
+                if seat_id in booked_seats:
+                    continue
+
+                available.append({
+                    "seat_id": seat_id,
+                    "coach": coach_name,
+                    "row": seat["row"],
+                    "column": seat["column"],
+                })
+
+        return available
+
+    except Exception as e:
+        print(f"[Query Available Seats Error] {e}")
+        return []
 # ── TRANSACTIONAL OPERATIONS ──────────────────────────────────────────────────
 
 def execute_booking(

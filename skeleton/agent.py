@@ -755,7 +755,7 @@ JSON:"""
     _booking_id = re.search(r'\bBK-?\d+\b', user_message, re.IGNORECASE)
 
     if "cancel" in _lower and _booking_id:
-        booking_id = _booking_id.group(0).upper().replace("-", "")
+        booking_id = _booking_id.group(0).upper()
         
         # 💡 關鍵修正：從目前登入的系統狀態中，撈出使用者的 user_id
         target_uid = "unknown"

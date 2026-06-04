@@ -764,49 +764,49 @@ JSON:"""
     if "cancel" in _lower and _booking_id:
         booking_id = _booking_id.group(0).upper()
         
-        # 💡 關鍵修正：從目前登入的系統狀態中，撈出使用者的 user_id
+        # Critical Fix: Extract the user_id from the current logged-in system state
         target_uid = "unknown"
         if current_user_email:
             profile = query_user_profile(current_user_email)
             if profile:
                 target_uid = profile["user_id"]
 
-        # 💡 同步修改：在參數字典中，把 booking_id 和 user_id 一起餵給 LLM 觸發
+        # Synchronized Update: Pass both booking_id and user_id together in the parameter dictionary to trigger the LLM
         _fallback(
             "cancel_booking",
             {"booking_id": booking_id, "user_id": target_uid},
             "booking cancellation"
         )
 
-    # ====================================================================
-    # 💡 玩法二：完全獨立且「全動態」的 Make Booking 強效攔截器！
-    # ====================================================================
+    # ======================================================================================
+    # Completely independent and "fully dynamic" Make Booking high-performance interceptor!
+    # ======================================================================================
     if "book" in _lower and "sch" in _lower:
         if not current_user_email:
             tool_calls = []
             if debug:
                 debug_info.append("**Fallback:** booking request without login → no tool call")
         else:
-            # 1. 動態抓取班次 ID（若句子裡沒講，就保底 NR_SCH03）
+            # 1. Dynamically extract the schedule ID (fallback to NR_SCH03 if not specified in the sentence)
             sch_match = re.search(r'NR_SCH\d+', user_message, re.IGNORECASE)
             schedule_id = sch_match.group(0).upper() if sch_match else "NR_SCH03"
             
-            # 2. 動態抓取句子裡所有的火車車站 ID（NR開頭）
-            # 第一個找到的當起點，第二個當終點。若少於 2 個就保底經典的 NR01 到 NR10
+            # 2. Dynamically extract all train station IDs (starting with NR) from the sentence
+            # The first one found serves as the origin, and the second as the destination. Fallback to classic NR01 to NR10 if fewer than 2 are found.
             station_matches = re.findall(r'\b(NR\d{2})\b', user_message, re.IGNORECASE)
             origin_sid = station_matches[0].upper() if len(station_matches) >= 1 else "NR01"
             dest_sid = station_matches[1].upper() if len(station_matches) >= 2 else "NR10"
             
-            # 3. 動態抓取日期（格式：YYYY-MM-DD，若沒講就保底 2026-08-12）
+            # 3. Dynamically extract the date (Format: YYYY-MM-DD, fallback to 2026-08-12 if not specified)
             _travel_date = next(
                 (w for w in _lower.split() if re.match(r'\d{4}-\d{2}-\d{2}', w)), "2026-08-12"
             )
             
-            # 4. 動態抓取特定座位（大寫字母+兩位數字，例如 A06, B12。若沒講就保底 B10）
+            # 4. Dynamically extract a specific seat (Capital letter + two digits, e.g., A06, B12. Fallback to B10 if not specified)
             seat_match = re.search(r'\b[A-Z]\d{2}\b', user_message, re.IGNORECASE)
             final_seat_id = seat_match.group(0).upper() if seat_match else "B10"
             
-            # 5. 動態判斷艙等（句子有出現 first 就切換成 first class，其餘皆為 standard）
+            # 5. Dynamically determine the fare class (switch to first class if "first" appears in the sentence; otherwise default to standard)
             final_fare_class = "first" if "first" in _lower else "standard"
             
             _fallback(
@@ -822,9 +822,8 @@ JSON:"""
                 },
                 "fully dynamic forced national rail booking"
             )
-            # 💡 這裡一樣不加 return，保證它設定好參數後，能平安流向 Step 2 的資料庫執行流程！
 
-    # 0.5 Booking request — 原本剩餘的查空位邏輯保留在下方，不影響正常流程
+    # 0.5 Booking request — The remaining original availability check logic is kept below, without affecting the normal flow
     _booking_triggers = {
         "book me", "book a", "booking", "make a booking",
         "reserve", "reservation", "buy a ticket", "standard ticket",

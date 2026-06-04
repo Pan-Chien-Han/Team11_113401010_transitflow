@@ -328,6 +328,155 @@ def query_metro_fare(schedule_id: str, stops_travelled: int) -> Optional[dict]:
 
 
 # ── SEAT SELECTION ────────────────────────────────────────────────────────────
+def query_available_seats(
+    schedule_id: str,
+    travel_date: str,
+    fare_class: str,
+) -> list[dict]:
+    """
+    Return available seats for a national rail journey on a given date.
+
+    Args:
+        schedule_id:  e.g. "NR_SCH01"
+        travel_date:  e.g. "2025-06-01"
+        fare_class:   "standard" or "first"
+
+    Returns:
+        List of dicts: {seat_id, coach, row, column}
+    """
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT coaches
+                    FROM national_rail_seat_layouts
+                    WHERE schedule_id = %s
+                    """,
+                    (schedule_id,)
+                )
+
+                row = cur.fetchone()
+
+                if not row:
+                    return []
+
+                coaches = row["coaches"]
+
+                cur.execute(
+                    """
+                    SELECT seat_id
+                    FROM national_rail_bookings
+                    WHERE schedule_id = %s
+                      AND travel_date = %s
+                      AND status NOT IN ('cancelled', 'refunded')
+                      AND seat_id IS NOT NULL
+                    """,
+                    (schedule_id, travel_date)
+                )
+
+                booked_seats = {
+                    r["seat_id"]
+                    for r in cur.fetchall()
+                }
+
+        available = []
+
+        for coach in coaches:
+            coach_name = coach["coach"]
+            coach_class = coach["fare_class"]
+
+            if coach_class.lower() != fare_class.lower():
+                continue
+
+            for seat in coach["seats"]:
+                seat_id = seat["seat_id"]
+
+                if seat_id in booked_seats:
+                    continue
+
+                available.append({
+                    "seat_id": seat_id,
+                    "coach": coach_name,
+                    "row": seat["row"],
+                    "column": seat["column"],
+                })
+
+        return available
+
+    except Exception as e:
+        print(f"[Query Available Seats Error] {e}")
+        return []
+
+
+def auto_select_adjacent_seats(available_seats: list[dict], count: int) -> list[str]:
+    """
+    Select `count` seats that are as close together as possible (same row preferred,
+    then adjacent rows). Returns a list of seat_ids.
+
+    Args:
+        available_seats: output of query_available_seats()
+        count:           number of seats needed
+    """
+    if not available_seats or count <= 0:
+        return []
+
+    if count >= len(available_seats):
+        return [s["seat_id"] for s in available_seats[:count]]
+
+    from collections import defaultdict
+
+    rows: dict[int, list[dict]] = defaultdict(list)
+
+    for seat in available_seats:
+        rows[seat["row"]].append(seat)
+
+    for row_seats in sorted(rows.values(), key=lambda s: s[0]["row"]):
+        if len(row_seats) >= count:
+            return [s["seat_id"] for s in row_seats[:count]]
+
+    sorted_seats = sorted(
+        available_seats,
+        key=lambda s: (s["row"], s["column"])
+    )
+
+    return [s["seat_id"] for s in sorted_seats[:count]]
+
+
+# ── USER & BOOKING QUERIES ────────────────────────────────────────────────────
+
+def query_user_profile(user_email: str) -> Optional[dict]:
+    """
+    Return one active registered user by email.
+    """
+    sql = """
+        SELECT
+            user_id,
+            full_name,
+            email,
+            phone,
+            date_of_birth,
+            registered_at,
+            is_active
+        FROM registered_users
+        WHERE email = %s
+          AND is_active = TRUE;
+    """
+
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, (user_email.strip().lower(),))
+                row = cur.fetchone()
+
+                if not row:
+                    return None
+
+                return dict(row)
+
+    except Exception as e:
+        print(f"[Query User Profile Error] {e}")
+        return None
 
 def query_user_bookings(user_identifier: str) -> dict:
     """

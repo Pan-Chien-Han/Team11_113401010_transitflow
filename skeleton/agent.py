@@ -645,10 +645,23 @@ JSON:"""
 
     # ── Deterministic fallbacks ────────────────────────────────────────────────
     # llama3.2:1b is unreliable for tool routing on anything beyond trivial queries.
-    # Rules below cover every common query type.  Each rule only fires when the
+    # Rules below cover every common query type. Each rule only fires when the
     # correct tool is not already selected with valid required params.
+
     _lower = _augmented_message.lower()
-    _station_ids = re.findall(r'\b(MS\d{2}|NR\d{2})\b', _augmented_message, re.IGNORECASE)
+
+    _raw_station_ids = re.findall(
+        r'\b(MS\d{2}|NR\d{2})\b',
+        _augmented_message,
+        re.IGNORECASE
+    )
+
+    _station_ids = []
+    for sid in _raw_station_ids:
+        sid = sid.upper()
+        if sid not in _station_ids:
+            _station_ids.append(sid)
+
     _two_stations = len(_station_ids) >= 2
 
     def _tool_selected(name: str, *required_params) -> bool:
@@ -656,15 +669,22 @@ JSON:"""
         call = next((c for c in tool_calls if c.get("name") == name), None)
         if not call:
             return False
+
         p = call.get("params") or {}
         return all(p.get(k) for k in required_params)
 
     def _fallback(name: str, params: dict, reason: str):
-        nonlocal tool_calls
-        tool_calls = [{"name": name, "params": params}]
+        tool_calls.clear()
+        tool_calls.append({
+            "name": name,
+            "params": params
+        })
+
         if debug:
-            debug_info.append(f"**Fallback:** {reason} → {name}({params})")
-                
+            debug_info.append(
+                f"**Fallback:** {reason} → {name}({params})"
+            )
+
     # 0.0 Age-based fare / concession policy questions
     _age_fare_keywords = {
         "child", "children", "minor", "minors", "child fare", "child ticket",
@@ -797,14 +817,14 @@ JSON:"""
             )
             # 💡 這裡一樣不加 return，保證它設定好參數後，能平安流向 Step 2 的資料庫執行流程！
 
-    # # 0.5 Booking request — 原本剩餘的查空位邏輯保留在下方，不影響正常流程
+    # 0.5 Booking request — 原本剩餘的查空位邏輯保留在下方，不影響正常流程
     _booking_triggers = {
         "book me", "book a", "booking", "make a booking",
         "reserve", "reservation", "buy a ticket", "standard ticket",
         "first class ticket"
     }
 
-    if any(kw in _lower for kw in _booking_triggers):
+    if any(kw in _lower for kw in _booking_triggers) and not _tool_selected("make_booking", "schedule_id"):
         if not current_user_email:
             tool_calls = []
             if debug:
@@ -819,8 +839,12 @@ JSON:"""
             }
             if _travel_date:
                 _params["travel_date"] = _travel_date
-            _fallback("check_national_rail_availability", _params, "booking request")
-            
+
+            _fallback(
+                "check_national_rail_availability",
+                _params,
+                "booking request"
+            )
     # 1. Route / directions / path — also overrides wrong-tool selections
     _route_triggers = {"fastest route", "quickest route", "shortest route", "cheapest route",
                        "best route", "how to get", "directions from", "route from", "route to",

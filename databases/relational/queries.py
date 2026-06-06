@@ -909,7 +909,7 @@ def register_user(first_name: str, surname: str, email: str, password: str, secr
     
     # Security Upgrade: Encrypt both password and secret answer using Argon2 hashing
     hashed_password = ph.hash(password)
-    hashed_answer = ph.hash(secret_answer.strip().lower()) # 轉小寫再雜湊，確保驗證時大小寫不敏感
+    hashed_answer = ph.hash(secret_answer.strip().lower()) # Convert to lowercase before hashing to ensure case-insensitive verification
     
     # Fix 1: Remove fields that do not belong to this table, and add phone and date_of_birth
     sql_user = """

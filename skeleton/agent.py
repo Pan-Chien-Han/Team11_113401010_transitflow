@@ -454,6 +454,7 @@ def _execute_tool(
                     origin_id=origin_id,
                     destination_id=destination_id,
                     network=network,
+                    fare_class=params.get("fare_class", "standard"),
                 )
             else:
                 result = query_shortest_route(

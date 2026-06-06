@@ -164,12 +164,12 @@ def query_cheapest_route(
         if not record or record["path"] is None:
             return {
                 "found": False,
+                "cost": 0.0,
                 "total_fare_usd": 0.0,
                 "path": [],
                 "stations": [],
                 "legs": []
             }
-
         path_obj = record["path"]
         
         # Defensive Safeguard: Convert raw_weight to 0.0 if it is None to prevent math.isnan from raising an exception
@@ -219,6 +219,7 @@ def query_cheapest_route(
 
         return {
             "found": True,
+            "cost": round(float(total_fare), 2),
             "total_fare_usd": round(float(total_fare), 2),
             "path": stations_list,
             "stations": stations_list,

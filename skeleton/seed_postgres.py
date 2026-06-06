@@ -79,7 +79,7 @@ def seed_metro_stations(cur):
             item["is_interchange_national_rail"],
             item["interchange_national_rail_station_id"]
         ))
-        # 額外處理相鄰車站，塞入你們設計的 metro_links 資料表
+        # Additional processing for adjacent stations to populate your custom metro_links table
         for adj in item.get("adjacent_stations", []):
             links.append((
                 item["station_id"],
@@ -112,7 +112,7 @@ def seed_national_rail_stations(cur):
             item["is_interchange_metro"],
             item["interchange_metro_station_id"]
         ))
-        # 額外處理相鄰車站，塞入你們設計的 national_rail_links 資料表
+        # Additional processing for adjacent stations to populate your custom national_rail_links table
         for adj in item.get("adjacent_stations", []):
             links.append((
                 item["station_id"],
@@ -145,7 +145,7 @@ def seed_metro_schedules(cur):
             item["stops_in_order"],
             item["first_train_time"],
             item["last_train_time"],
-            json.dumps(item["travel_time_from_origin_min"]),  # 轉成 JSON 字串以符合 JSONB
+            json.dumps(item["travel_time_from_origin_min"]),  # Convert to JSON string to match JSONB type
             item["base_fare_usd"],
             item["per_stop_rate_usd"],
             item["frequency_min"],
@@ -203,13 +203,13 @@ def seed_users(cur):
     data = load("registered_users.json")
     ph = PasswordHasher()
 
-    # 💡 修正 1：registered_users 的欄位，移除安全問答（因為 schema 裡沒有這兩欄）
+    # Fields for registered_users, removing security questions (since they don't exist in this table schema)
     user_columns = [
         "user_id", "full_name", "email", "phone",
         "date_of_birth", "registered_at", "is_active"
     ]
 
-    # 💡 修正 2：user_credentials 欄位，加入 secret_question 與 secret_answer_hash
+    # Fields for user_credentials, adding secret_question and secret_answer_hash
     credential_columns = [
         "user_id", "password_hash", "secret_question", "secret_answer_hash"
     ]
@@ -218,7 +218,7 @@ def seed_users(cur):
     credential_rows = []
 
     for item in data:
-        # 1. 準備寫入 registered_users 的基本資料
+        # 1. Prepare profile data to be written into registered_users
         user_rows.append((
             item["user_id"],
             item["full_name"],
@@ -229,19 +229,19 @@ def seed_users(cur):
             item["is_active"]
         ))
 
-        # 🔒 安全防護：比照 queries.py，將密碼與安全問答都在記憶體中轉為 Argon2 雜湊
+        # Security Guard: Consistent with queries.py, convert password and security answers to Argon2 hashes in memory
         raw_password = item["password"]
-        raw_answer = item.get("secret_answer", "").strip().lower()  # 轉小寫再雜湊，驗證才不會因大小寫卡住
+        raw_answer = item.get("secret_answer", "").strip().lower()  # Convert to lowercase before hashing to prevent verification failures due to casing
 
-        # 2. 準備寫入 user_credentials 的憑證資料
+        # 2. Prepare credential data to be written into user_credentials
         credential_rows.append((
             item["user_id"],
-            ph.hash(raw_password),                       # 密碼 HASH
-            item.get("secret_question"),                  # 提示問題明碼
-            ph.hash(raw_answer) if raw_answer else ""   # 答案 HASH
+            ph.hash(raw_password),                       # Password HASH
+            item.get("secret_question"),                  # Security question in plaintext
+            ph.hash(raw_answer) if raw_answer else ""   # Security answer HASH
         ))
 
-    # 執行批次寫入基本資料表
+    # Execute batch insertion for the profile data table
     user_count = insert_many(
         cur,
         "registered_users",
@@ -249,7 +249,7 @@ def seed_users(cur):
         user_rows
     )
 
-    # 執行批次寫入憑證安全表
+    # Execute batch insertion for the credentials security table
     credential_count = insert_many(
         cur,
         "user_credentials",

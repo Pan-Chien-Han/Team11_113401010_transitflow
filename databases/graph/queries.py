@@ -174,13 +174,14 @@ def query_cheapest_route(
         if not record or record["path"] is None:
             return {
                 "found": False,
+
                 "error": "No cheapest route found in Neo4j graph.",
-                "total_fare_usd": None,
+                "cost": 0.0,
+                "total_fare_usd": 0.0,
                 "path": [],
                 "stations": [],
                 "legs": []
             }
-
         path_obj = record["path"]
         raw_weight = record["weight"]
 
@@ -253,7 +254,9 @@ def query_cheapest_route(
 
         return {
             "found": True,
-            "total_fare_usd": round(total_fare, 2),
+
+            "cost": round(float(total_fare), 2),
+            "total_fare_usd": round(float(total_fare), 2),
             "fare_class": fare_class.lower(),
             "fare_property_used": fare_property,
             "path": stations_list,

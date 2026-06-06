@@ -269,6 +269,7 @@ TOOLS = [
             "destination_id": {"type": "string", "description": "Station ID e.g. MS09 or NR05"},
             "network":        {"type": "string", "description": "metro, rail, or auto (default auto — inferred from IDs)"},
             "optimise_by":    {"type": "string", "description": "time (fastest, default) or cost (cheapest)"},
+            "fare_class":     {"type": "string", "description": "standard or first; only relevant for cheapest rail routes"},
         },
         "required": ["origin_id", "destination_id"],
     },
@@ -295,7 +296,7 @@ TOOLS = [
 ]
 
 TOOLS_SCHEMA = """\
-find_route(origin_id, destination_id, optimise_by?)
+find_route(origin_id, destination_id, optimise_by?, network?, fare_class?)
 check_national_rail_availability(origin_id, destination_id, travel_date?)
 get_national_rail_fare(schedule_id, fare_class, stops_travelled)
 check_metro_availability(origin_id, destination_id)
@@ -440,27 +441,29 @@ def _execute_tool(
             destination_id = params["destination_id"]
             network        = params.get("network", "auto")
             optimise_by    = params.get("optimise_by", "time")
+            fare_class     = params.get("fare_class", "standard")
 
-            # Detect cross-network routing (one MS, one NR)
+
             is_cross = (
                 (origin_id.upper().startswith("MS") and destination_id.upper().startswith("NR")) or
                 (origin_id.upper().startswith("NR") and destination_id.upper().startswith("MS"))
             )
 
-            if is_cross:
-                result = query_interchange_path(origin_id, destination_id)
-            elif optimise_by == "cost":
+            if optimise_by == "cost":
                 result = query_cheapest_route(
                     origin_id=origin_id,
                     destination_id=destination_id,
                     network=network,
+                    fare_class=fare_class,
                 )
+            elif is_cross:
+                result = query_interchange_path(origin_id, destination_id)
             else:
                 result = query_shortest_route(
                     origin_id=origin_id,
                     destination_id=destination_id,
                     network=network,
-                )
+        )
 
         elif tool_name == "find_alternative_routes":
             routes = query_alternative_routes(
@@ -953,10 +956,31 @@ JSON:"""
         (_two_stations and "route" in _lower)
     )
     if _is_route and _two_stations and not _tool_selected("find_route", "origin_id", "destination_id"):
+        origin_id = _station_ids[0].upper()
+        destination_id = _station_ids[1].upper()
+
         _opt = "cost" if any(kw in _lower for kw in ["cheap", "cheapest", "lowest cost"]) else "time"
-        _fallback("find_route",
-                  {"origin_id": _station_ids[0].upper(), "destination_id": _station_ids[1].upper(), "optimise_by": _opt},
-                  "route query")
+
+        if origin_id.startswith("NR") and destination_id.startswith("NR"):
+            _network = "rail"
+        elif origin_id.startswith("MS") and destination_id.startswith("MS"):
+            _network = "metro"
+        else:
+            _network = "auto"
+
+        _fare_class = "first" if "first" in _lower else "standard"
+
+        _fallback(
+            "find_route",
+            {
+                "origin_id": origin_id,
+                "destination_id": destination_id,
+                "optimise_by": _opt,
+                "network": _network,
+                "fare_class": _fare_class,
+            },
+            "route query"
+    )
 
     # 2. Availability / trains / schedules between two stations
     elif not tool_calls and _two_stations:

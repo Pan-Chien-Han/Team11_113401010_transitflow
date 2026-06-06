@@ -125,7 +125,9 @@ def query_cheapest_route(
     fare_class: str = "standard",
 ) -> dict:
     """
-    Find the most cost-effective route between two stations (minimizing total fare).
+    Find the most cost-effective route between two stations using Neo4j relationship cost weights.
+    This function relies on fare/cost properties stored on graph relationships.
+    It does NOT fall back to hard-coded fare formulas.
     """
     import math
 
@@ -139,90 +141,124 @@ def query_cheapest_route(
         start_label = "MetroStation" if network == "metro" else "NationalRailStation"
         end_label = "MetroStation" if network == "metro" else "NationalRailStation"
 
-    if start_label == "MetroStation":
-        fare_property = "fare"
+    # Use graph relationship cost properties.
+    # Metro and standard rail use standard_fare_usd.
+    # First class rail uses first_fare_usd.
+    if fare_class.lower() == "first":
+        fare_property = "first_fare_usd"
     else:
-        fare_property = "first_fare_usd" if fare_class == "first" else "standard_fare_usd"
+        fare_property = "standard_fare_usd"
 
-    # Convert $fare_property to an f-string '{fare_property}' so the APOC algorithm can parse it correctly!
+    # Include INTERCHANGE_WITH for cross-network paths.
+    # This requires INTERCHANGE_WITH relationships to also have the selected fare_property.
+    relationship_filter = "LINK_TO>|INTERCHANGE_WITH>"
+
     cypher = f"""
     MATCH (start:{start_label} {{station_id: $origin_id}})
     MATCH (end:{end_label} {{station_id: $destination_id}})
-    CALL apoc.algo.dijkstra(start, end, 'LINK_TO', '{fare_property}')
+    CALL apoc.algo.dijkstra(start, end, $relationship_filter, $fare_property)
     YIELD path, weight
     RETURN path, weight
     """
 
     with _PROD_DRIVER.session() as session:
         result = session.run(
-            cypher, 
-            origin_id=orig_up, 
-            destination_id=dest_up
+            cypher,
+            origin_id=orig_up,
+            destination_id=dest_up,
+            relationship_filter=relationship_filter,
+            fare_property=fare_property,
         )
         record = result.single()
 
         if not record or record["path"] is None:
             return {
                 "found": False,
-                "total_fare_usd": 0.0,
+                "error": "No cheapest route found in Neo4j graph.",
+                "total_fare_usd": None,
                 "path": [],
                 "stations": [],
                 "legs": []
             }
 
         path_obj = record["path"]
-        
-        # Defensive Safeguard: Convert raw_weight to 0.0 if it is None to prevent math.isnan from raising an exception
         raw_weight = record["weight"]
-        total_fare = float(raw_weight) if raw_weight is not None else 0.0
+
+        if raw_weight is None:
+            return {
+                "found": False,
+                "error": f"No cost data found on graph relationships for property '{fare_property}'.",
+                "total_fare_usd": None,
+                "path": [],
+                "stations": [],
+                "legs": []
+            }
+
+        total_fare = float(raw_weight)
+
+        if math.isnan(total_fare):
+            return {
+                "found": False,
+                "error": f"Invalid cost data found on graph relationships for property '{fare_property}'.",
+                "total_fare_usd": None,
+                "path": [],
+                "stations": [],
+                "legs": []
+            }
 
         stations_list = []
         for node in path_obj.nodes:
             stations_list.append({
-                "station_id": node["station_id"],
-                "name": node["name"],
-                "lines": node["lines"]
+                "station_id": node.get("station_id"),
+                "name": node.get("name"),
+                "lines": node.get("lines", []),
             })
 
         legs_list = []
+        missing_cost_edges = []
+
         for rel in path_obj.relationships:
-            val = rel.get(fare_property)
-            if val is None or (isinstance(val, float) and math.isnan(val)):
-                val = 0.0
+            rel_type = rel.type
+            line = rel.get("line", "interchange")
+
+            fare_value = rel.get(fare_property)
+
+            if fare_value is None:
+                missing_cost_edges.append({
+                    "relationship_type": rel_type,
+                    "line": line,
+                    "missing_property": fare_property,
+                })
+                fare_value = 0.0
+            else:
+                fare_value = float(fare_value)
+
             legs_list.append({
-                "line": rel["line"],
-                "fare": float(val)
+                "relationship_type": rel_type,
+                "line": line,
+                "fare_property": fare_property,
+                "fare": fare_value,
             })
 
-        # Calculate the total number of segments (stops) traversed along this route
-        stops_count = len(legs_list)
-        total_legs_fare = sum(leg["fare"] for leg in legs_list)
-        
-        
-        if math.isnan(total_fare) or total_fare == 0.0 or total_legs_fare == 0.0:
-            if start_label == "MetroStation":
-                # Official Metro Single-Journey Fare Formula: Base fare 0.8 + (number of stops * 0.3 per stop)
-                base_fare = 0.80
-                per_stop_rate = 0.30
-                total_fare = base_fare + (stops_count * per_stop_rate)
-            else:
-                # National Rail defensive fallback mechanism if data seeding fails
-                total_fare = stops_count * 5.0
-                
-            # Distribute the fare equally across all legs to ensure the web UI debug panel looks clean and professional
-            fair_share = total_fare / max(1, stops_count)
-            for leg in legs_list:
-                leg["fare"] = round(fair_share, 2)
-        else:
-            if math.isnan(total_fare) or total_fare == 0.0:
-                total_fare = total_legs_fare
+        if missing_cost_edges:
+            return {
+                "found": False,
+                "error": f"Some graph relationships are missing cost property '{fare_property}'. Re-run seed_neo4j.py after adding fare properties.",
+                "missing_cost_edges": missing_cost_edges,
+                "total_fare_usd": None,
+                "path": stations_list,
+                "stations": stations_list,
+                "legs": legs_list,
+            }
 
         return {
             "found": True,
-            "total_fare_usd": round(float(total_fare), 2),
+            "total_fare_usd": round(total_fare, 2),
+            "fare_class": fare_class.lower(),
+            "fare_property_used": fare_property,
             "path": stations_list,
             "stations": stations_list,
-            "legs": legs_list
+            "legs": legs_list,
         }
 
 

@@ -61,7 +61,7 @@ def seed():
                 is_interchange_metro=station["is_interchange_metro"],
                 interchange_metro_lines=station["interchange_metro_lines"],
                 is_interchange_national_rail=station["is_interchange_national_rail"],
-                interchange_national_rail_station_id=station["interchange_national_rail_station_id"]
+                interchange_national_rail_station_id=station["interchange_national_rail_station_id"],
             )
 
         # ==========================================================
@@ -77,78 +77,102 @@ def seed():
                 """,
                 station_id=station["station_id"],
                 name=station["name"],
-                lines=station.get("lines", [])
+                lines=station.get("lines", []),
             )
 
         # ==========================================================
         # 3. 建立 捷運路線 關係 (LINK_TO)
+        #    Metro 沒有 first class，所以 first_fare_usd 先設成與 standard 相同。
         # ==========================================================
         print("  Creating metro links...")
         for station in metro_stations:
             from_id = station["station_id"]
+
             for adjacent in station.get("adjacent_stations", []):
                 to_id = adjacent["station_id"]
                 line_name = adjacent["line"]
                 travel_time = adjacent["travel_time_min"]
-                
+
                 session.run(
                     """
                     MATCH (from:MetroStation {station_id: $from_id})
                     MATCH (to:MetroStation {station_id: $to_id})
                     MERGE (from)-[r:LINK_TO {line: $line_name}]->(to)
-                    SET r.travel_time_min = $travel_time
+                    SET r.travel_time_min = $travel_time,
+                        r.standard_fare_usd = 0.30,
+                        r.first_fare_usd = 0.30,
+                        r.cost_usd = 0.30
                     """,
                     from_id=from_id,
                     to_id=to_id,
                     line_name=line_name,
-                    travel_time=travel_time
+                    travel_time=travel_time,
                 )
 
         # ==========================================================
         # 4. 建立 國家鐵路路線 關係 (LINK_TO)
+        #    這裡補上 cheapest route 需要的 fare/cost 權重。
         # ==========================================================
         print("  Creating national rail links...")
         for station in rail_stations:
             from_id = station["station_id"]
+
             for adjacent in station.get("adjacent_stations", []):
                 to_id = adjacent["station_id"]
                 line_name = adjacent["line"]
                 travel_time = adjacent["travel_time_min"]
-                
+
                 session.run(
                     """
                     MATCH (from:NationalRailStation {station_id: $from_id})
                     MATCH (to:NationalRailStation {station_id: $to_id})
                     MERGE (from)-[r:LINK_TO {line: $line_name}]->(to)
-                    SET r.travel_time_min = $travel_time
+                    SET r.travel_time_min = $travel_time,
+                        r.standard_fare_usd = 1.20,
+                        r.first_fare_usd = 2.00,
+                        r.cost_usd = 1.20
                     """,
                     from_id=from_id,
                     to_id=to_id,
                     line_name=line_name,
-                    travel_time=travel_time
+                    travel_time=travel_time,
                 )
 
         # ==========================================================
         # 5. 建立 捷運 與 國家鐵路 之間的轉乘關係 (INTERCHANGE_WITH)
+        #    轉乘邊也要有 travel_time_min 與 cost 權重，否則 cheapest route
+        #    走跨系統路線時會缺少 Dijkstra 權重。
         # ==========================================================
         print("  Creating interchange relationships between metro and national rail...")
         for station in metro_stations:
-            if station.get("is_interchange_national_rail") and station.get("interchange_national_rail_station_id"):
+            if (
+                station.get("is_interchange_national_rail")
+                and station.get("interchange_national_rail_station_id")
+            ):
                 metro_id = station["station_id"]
                 rail_id = station["interchange_national_rail_station_id"]
-                
-                # 建立雙向轉乘關係，轉乘時間預設為 5 分鐘（可依專案需求調整）
+
                 session.run(
                     """
                     MATCH (m:MetroStation {station_id: $metro_id})
                     MATCH (r:NationalRailStation {station_id: $rail_id})
+
                     MERGE (m)-[i1:INTERCHANGE_WITH]->(r)
-                    SET i1.transfer_time_min = 5
+                    SET i1.transfer_time_min = 5,
+                        i1.travel_time_min = 5,
+                        i1.standard_fare_usd = 0.00,
+                        i1.first_fare_usd = 0.00,
+                        i1.cost_usd = 0.00
+
                     MERGE (r)-[i2:INTERCHANGE_WITH]->(m)
-                    SET i2.transfer_time_min = 5
+                    SET i2.transfer_time_min = 5,
+                        i2.travel_time_min = 5,
+                        i2.standard_fare_usd = 0.00,
+                        i2.first_fare_usd = 0.00,
+                        i2.cost_usd = 0.00
                     """,
                     metro_id=metro_id,
-                    rail_id=rail_id
+                    rail_id=rail_id,
                 )
 
     driver.close()

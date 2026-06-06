@@ -41,7 +41,7 @@ def seed():
         print("  Cleared existing graph data")
 
         # ==========================================================
-        # 1. 建立 捷運車站 節點 (MetroStation)
+        # 1. Create MetroStation Nodes (MetroStation)
         # ==========================================================
         print("  Creating MetroStation nodes...")
         for station in metro_stations:
@@ -65,7 +65,7 @@ def seed():
             )
 
         # ==========================================================
-        # 2. 建立 國家鐵路車站 節點 (NationalRailStation)
+        # 2. Create NationalRailStation Nodes (NationalRailStation)
         # ==========================================================
         print("  Creating NationalRailStation nodes...")
         for station in rail_stations:
@@ -81,7 +81,7 @@ def seed():
             )
 
         # ==========================================================
-        # 3. 建立 捷運路線 關係 (LINK_TO)
+        # 3. Create Metro Network Relationships (LINK_TO)
         # ==========================================================
         print("  Creating metro links...")
         for station in metro_stations:
@@ -105,7 +105,7 @@ def seed():
                 )
 
         # ==========================================================
-        # 4. 建立 國家鐵路路線 關係 (LINK_TO)
+        # 4. Create National Rail Network Relationships (LINK_TO)
         # ==========================================================
         print("  Creating national rail links...")
         for station in rail_stations:
@@ -129,7 +129,7 @@ def seed():
                 )
 
         # ==========================================================
-        # 5. 建立 捷運 與 國家鐵路 之間的轉乘關係 (INTERCHANGE_WITH)
+        # 5. Create Cross-Network Interchange Relationships (INTERCHANGE_WITH)
         # ==========================================================
         print("  Creating interchange relationships between metro and national rail...")
         for station in metro_stations:
@@ -137,7 +137,8 @@ def seed():
                 metro_id = station["station_id"]
                 rail_id = station["interchange_national_rail_station_id"]
                 
-                # 建立雙向轉乘關係，轉乘時間預設為 5 分鐘（可依專案需求調整）
+                # Establish a bidirectional interchange relationship.
+                # Transfer time defaults to 5 minutes but can be adjusted if needed.
                 session.run(
                     """
                     MATCH (m:MetroStation {station_id: $metro_id})
